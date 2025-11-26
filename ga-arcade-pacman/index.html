@@ -1,0 +1,157 @@
+﻿<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GA-Arcade · Pac-Man</title>
+  <link rel="stylesheet" href="./src/css/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="title-group">
+      <h1>GA-Arcade · Pac-Man</h1>
+      <p class="subtitle">Algoritmo Genético + Juego Clásico 2D</p>
+    </div>
+    <div class="status-block">
+      <span class="status-label">Estado</span>
+      <span id="status-badge" class="status-badge status-idle">Idle</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel panel-left">
+      <div class="panel-header">
+        <h2>Parámetros del AG</h2>
+        <p class="panel-hint">Configura población, tasas y simulación antes de iniciar.</p>
+      </div>
+      <form id="ga-params-form" class="params-form" novalidate>
+        <div class="form-group">
+          <label for="population-input">Tamaño de población (N)</label>
+          <input type="number" id="population-input" name="population" min="1" step="1" placeholder="Ej. 40">
+        </div>
+        <div class="form-group">
+          <label for="generations-input">Generaciones (G)</label>
+          <input type="number" id="generations-input" name="generations" min="1" step="1" placeholder="Ej. 50">
+        </div>
+        <div class="form-group">
+          <label for="selection-input">% Selección</label>
+          <input type="number" id="selection-input" name="selection" min="0" max="100" step="1" placeholder="Ej. 40">
+        </div>
+        <div class="form-group">
+          <label for="crossover-input">% Cruzamiento</label>
+          <input type="number" id="crossover-input" name="crossover" min="0" max="100" step="1" placeholder="Ej. 45">
+        </div>
+        <div class="form-group">
+          <label for="mutation-input">% Mutación</label>
+          <input type="number" id="mutation-input" name="mutation" min="0" max="100" step="1" placeholder="Ej. 15">
+        </div>
+        <div class="form-group">
+          <label for="tournament-input">Tamaño de torneo</label>
+          <input type="number" id="tournament-input" name="tournament" min="1" step="1" placeholder="Ej. 3">
+        </div>
+        <div class="form-group">
+          <label for="seed-input">Semilla aleatoria</label>
+          <input type="number" id="seed-input" name="seed" step="1" placeholder="Ej. 42">
+        </div>
+        <div class="form-group">
+          <label for="fps-input">FPS de simulación</label>
+          <input type="number" id="fps-input" name="fps" min="1" step="1" placeholder="Ej. 60">
+        </div>
+        <div class="form-group">
+          <label for="episodes-input">Episodios por individuo</label>
+          <input type="number" id="episodes-input" name="episodes" min="1" step="1" placeholder="Ej. 3">
+        </div>
+        <div class="form-note">Usa esta etapa solo para probar la UI. Los cálculos reales llegarán después.</div>
+        <div id="percentage-error" class="error-message hidden">La suma de porcentajes debe ser 100%.</div>
+      </form>
+    </section>
+
+    <section class="panel panel-center">
+      <div class="panel-header">
+        <h2>Área de juego</h2>
+        <p class="panel-hint">Canvas placeholder con laberinto básico.</p>
+      </div>
+      <div class="game-area">
+        <canvas id="game-canvas" width="448" height="496"></canvas>
+        <div class="game-status-bar">
+          <div class="status-item">
+            <span class="label">Puntaje</span>
+            <span id="score-value" class="value">0</span>
+          </div>
+          <div class="status-item">
+            <span class="label">Nivel</span>
+            <span id="level-value" class="value">1</span>
+          </div>
+          <div class="status-item">
+            <span class="label">Vidas</span>
+            <span id="lives-value" class="value">3</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel panel-right">
+      <div class="panel-section">
+        <h2>Controles</h2>
+        <div class="controls-grid">
+          <button type="button" id="start-btn" class="btn primary">Start</button>
+          <button type="button" id="pause-btn" class="btn">Pause</button>
+          <button type="button" id="reset-btn" class="btn">Reset</button>
+          <button type="button" id="demo-btn" class="btn ghost">Demo best</button>
+        </div>
+      </div>
+
+      <div class="panel-section">
+        <h2>Métricas en vivo</h2>
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <span class="metric-label">Mejor fitness</span>
+            <span id="best-fitness" class="metric-value">--</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Fitness promedio</span>
+            <span id="avg-fitness" class="metric-value">--</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Tiempo total</span>
+            <span id="total-time" class="metric-value">--</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Tiempo promedio/gen</span>
+            <span id="avg-time" class="metric-value">--</span>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Generación</span>
+            <span id="generation-count" class="metric-value">--</span>
+          </div>
+        </div>
+        <div class="metrics-graph">
+          <div class="graph-header">
+            <span>Fitness vs Generaciones</span>
+            <span class="graph-note">Placeholder</span>
+          </div>
+          <canvas id="metrics-canvas" width="360" height="180"></canvas>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <span>Proyecto GA-Arcade · Pac-Man · Análisis de Algoritmos</span>
+    <span class="version">UI stub v0.1</span>
+  </footer>
+
+  <script src="./src/config/defaultConfig.js"></script>
+  <script src="./src/js/utils/domHelpers.js"></script>
+  <script src="./src/js/ui/uiLayout.js"></script>
+  <script src="./src/js/ui/uiForms.js"></script>
+  <script src="./src/js/ui/uiControls.js"></script>
+  <script src="./src/js/ui/uiMetrics.js"></script>
+  <script src="./src/js/game/gameView.js"></script>
+  <script src="./src/js/game/gameConstants.js"></script>
+  <script src="./src/js/game/gameState.js"></script>
+  <script src="./src/js/game/gameLogic.js"></script>
+  <script src="./src/js/game/episodeSimulator.js"></script>
+  <script src="./src/js/main.js"></script>
+</body>
+</html>
