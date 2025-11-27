@@ -86,7 +86,7 @@
   const REWARDS = {
     pellet: 10,
     powerPellet: 50,
-    step: -0.1,
+    step: -0.5,
     death: -500,
     ghostEaten: 200,
     levelClear: 1000

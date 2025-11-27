@@ -26,7 +26,7 @@
     'WWWWWW.WWWWW WW WWWWW.WWWWWW',
     'WWWWWW.WWWWW WW WWWWW.WWWWWW',
     'WWWWWW.WW          WW.WWWWWW',
-    'WWWWWW.WW WWWGGWWW WW.WWWWWW',
+    'WWWWWW.WW WGGGGGGW WW.WWWWWW',
     'WWWWWW.WW WWWWWWWW WW.WWWWWW',
     'W............WW............W',
     'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
@@ -42,7 +42,7 @@
     'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
     'W......WW....WW....WW......W',
     'WoWWWWWWWWWW.WW.WWWWWWWWWWoW',
-    'W..........................W',
+    'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
     'W..........................W',
     'WWWWWWWWWWWWWWWWWWWWWWWWWWWW'
   ];
