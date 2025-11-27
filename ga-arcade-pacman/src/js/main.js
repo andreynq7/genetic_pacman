@@ -1,9 +1,10 @@
-﻿// Entry point to bootstrap UI wiring + demo simple del motor base de Pac-Man.
+﻿// Entry point to bootstrap UI wiring + GA orchestration + demo del mejor individuo.
 (function() {
   let refs = null;
   let ctx = null;
   let currentState = null;
   let demoTimer = null;
+  let demoPolicyFn = null;
 
   function initApp() {
     refs = uiLayout.getRefs();
@@ -11,22 +12,26 @@
     uiForms.bindFormValidation(refs);
     uiForms.validateParametersForm(refs);
 
-    uiControls.bindControls(refs);
-    bindDemoControls(refs);
+    uiControls.bindControls(refs, {
+      onStart: handleStartTraining,
+      onPause: handlePauseResume,
+      onReset: handleReset,
+      onDemo: handleDemoBest
+    });
     bindKeyboard();
 
-    uiMetrics.updateMetrics(refs, {
-      bestFitness: '0.00',
-      averageFitness: '0.00',
+    uiMetrics.updateTrainingMetrics(refs, {
+      bestFitness: '--',
+      averageFitness: '--',
+      generation: '0',
       totalTime: '0 s',
-      averageTime: '0 s',
-      generation: '0'
+      averageTime: '0 s'
     });
     uiMetrics.updateStatusBadge('Idle', 'idle');
 
     setupGame();
     uiMetrics.renderPlaceholderGraph(refs);
-    console.log('GA-Arcade UI listo con motor base (sin IA).');
+    console.log('GA-Arcade UI lista con integración de GA.');
   }
 
   function setupGame() {
@@ -49,27 +54,84 @@
     domHelpers.setText(refs.game.statusBar.lives, currentState.lives);
   }
 
-  function stepDemo(action) {
-    if (!currentState) return;
-    const result = gameLogic.stepGame(currentState, action || gameConstants.ACTIONS.STAY);
-    currentState = result.state;
-    render();
-    if (result.done) {
-      stopDemo();
-      uiMetrics.updateStatusBadge('Idle', 'idle');
+  // ----------------- GA control -----------------
+  function handleStartTraining() {
+    if (!uiForms.validateParametersForm(refs)) return;
+    stopDemo();
+    const uiConfig = uiForms.readUIConfig(refs, window.defaultConfig || {});
+    gaController.initializeFromUI(uiConfig);
+    uiMetrics.updateStatusBadge('Entrenando', 'training');
+    uiMetrics.renderFitnessGraph(refs, [], []);
+    gaController.start(onGenerationUpdate, onTrainingFinished);
+  }
+
+  function handlePauseResume() {
+    const status = gaController.getStatus();
+    if (status.status === 'running') {
+      gaController.pause();
+      uiMetrics.updateStatusBadge('Pausado', 'paused');
+    } else if (status.status === 'paused') {
+      gaController.resume();
+      uiMetrics.updateStatusBadge('Entrenando', 'training');
+    } else if (demoTimer) {
+      pauseDemoLoop();
     }
   }
 
-  function startDemoLoop() {
+  function handleReset() {
     stopDemo();
-    uiMetrics.updateStatusBadge('Demo', 'demo');
-    if (!currentState) {
-      currentState = gameState.createInitialState();
+    gaController.reset();
+    uiMetrics.updateStatusBadge('Idle', 'idle');
+    uiMetrics.updateTrainingMetrics(refs, {
+      bestFitness: '--',
+      averageFitness: '--',
+      generation: '0',
+      totalTime: '0 s',
+      averageTime: '0 s'
+    });
+    uiMetrics.renderPlaceholderGraph(refs);
+    setupGame();
+  }
+
+  function onGenerationUpdate(info) {
+    const best = formatNumber(info.bestFitness);
+    const avg = formatNumber(info.averageFitness);
+    const genLabel = `${info.generation}/${gaController.getStatus().maxGenerations || info.generation}`;
+    const totalTime = `${formatNumber(info.totalTimeMs / 1000)} s`;
+    const avgTime = `${formatNumber(info.avgTimeMs / 1000)} s`;
+
+    uiMetrics.updateTrainingMetrics(refs, {
+      bestFitness: best,
+      averageFitness: avg,
+      generation: genLabel,
+      totalTime,
+      averageTime: avgTime
+    });
+    uiMetrics.renderFitnessGraph(refs, info.history.bestFitness, info.history.avgFitness);
+  }
+
+  function onTrainingFinished(summary) {
+    uiMetrics.updateStatusBadge('Terminado', 'training');
+    if (summary?.history) {
+      uiMetrics.renderFitnessGraph(refs, summary.history.bestFitness, summary.history.avgFitness);
     }
+  }
+
+  // ----------------- Demo del mejor individuo -----------------
+  function handleDemoBest() {
+    stopDemo();
+    const best = gaController.getBestChromosome();
+    if (best) {
+      demoPolicyFn = policyEncoding.policyFromChromosome(best, { tieBreak: 'random' });
+    } else {
+      demoPolicyFn = () => gameLogic.getRandomAction(currentState);
+    }
+    currentState = gameState.createInitialState();
+    uiMetrics.updateStatusBadge('Demo', 'demo');
     demoTimer = setInterval(() => {
-      const action = gameLogic.getRandomAction(currentState);
+      const action = demoPolicyFn ? demoPolicyFn(currentState) : gameConstants.ACTIONS.STAY;
       stepDemo(action);
-    }, 180);
+    }, 140);
   }
 
   function pauseDemoLoop() {
@@ -84,19 +146,16 @@
     }
   }
 
-  function resetGame() {
-    stopDemo();
-    currentState = gameState.createInitialState();
-    uiMetrics.updateStatusBadge('Idle', 'idle');
+  // ----------------- Simulación de juego y entrada -----------------
+  function stepDemo(action) {
+    if (!currentState) return;
+    const result = gameLogic.stepGame(currentState, action || gameConstants.ACTIONS.STAY);
+    currentState = result.state;
     render();
-  }
-
-  function bindDemoControls(localRefs) {
-    const controls = localRefs.controls || {};
-    controls.start?.addEventListener('click', startDemoLoop);
-    controls.pause?.addEventListener('click', pauseDemoLoop);
-    controls.reset?.addEventListener('click', resetGame);
-    controls.demo?.addEventListener('click', startDemoLoop);
+    if (result.done && demoTimer) {
+      // Reinicia episodio en modo demo para seguir mostrando recorrido.
+      currentState = gameState.createInitialState();
+    }
   }
 
   function bindKeyboard() {
@@ -120,14 +179,19 @@
     }
   }
 
+  function formatNumber(val) {
+    if (val == null || Number.isNaN(val)) return '--';
+    return Number(val).toFixed(2);
+  }
+
   document.addEventListener('DOMContentLoaded', initApp);
 
   // Exponer helpers para pruebas manuales desde consola.
   window.gameSession = {
     getState: () => currentState,
-    startDemoLoop,
+    startDemoLoop: handleDemoBest,
     pauseDemoLoop,
-    resetGame,
+    resetGame: handleReset,
     stepOnce: stepDemo
   };
 })();

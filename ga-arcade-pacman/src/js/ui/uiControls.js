@@ -1,27 +1,29 @@
-﻿// Button wiring for Start/Pause/Reset/Demo placeholders.
+﻿// Button wiring for Start/Pause/Reset/Demo con handlers inyectables.
 (function() {
-  function bindControls(refs) {
+  /**
+   * Asocia handlers a los botones principales. Si no se provee handler,
+   * se hace no-op.
+   * @param {Object} refs
+   * @param {Object} handlers { onStart, onPause, onReset, onDemo }
+   */
+  function bindControls(refs, handlers = {}) {
     if (!refs || !refs.controls) return;
     const { start, pause, reset, demo } = refs.controls;
 
     start?.addEventListener('click', () => {
-      console.log('Start clicked');
-      uiMetrics.updateStatusBadge('Entrenando', 'training');
+      handlers.onStart?.();
     });
 
     pause?.addEventListener('click', () => {
-      console.log('Pause/Resume clicked');
-      uiMetrics.updateStatusBadge('Pausado', 'paused');
+      handlers.onPause?.();
     });
 
     reset?.addEventListener('click', () => {
-      console.log('Reset clicked');
-      uiMetrics.updateStatusBadge('Idle', 'idle');
+      handlers.onReset?.();
     });
 
     demo?.addEventListener('click', () => {
-      console.log('Demo best clicked');
-      uiMetrics.updateStatusBadge('Demo', 'demo');
+      handlers.onDemo?.();
     });
   }
 

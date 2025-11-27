@@ -13,6 +13,31 @@
     refs.inputs.episodes.value = config.episodesPerIndividual ?? '';
   }
 
+  /**
+   * Lee y convierte los parámetros del formulario a un objeto de configuración numérica.
+   * No valida porcentajes; se asume que validateParametersForm se llamó antes.
+   * @param {Object} refs
+   * @param {Object} fallback valores por defecto opcionales
+   */
+  function readUIConfig(refs, fallback = {}) {
+    if (!refs?.inputs) return {};
+    const getNum = (el, defVal) => {
+      const n = Number(el?.value);
+      return Number.isFinite(n) ? n : defVal;
+    };
+    return {
+      populationSize: getNum(refs.inputs.population, fallback.populationSize ?? 30),
+      generations: getNum(refs.inputs.generations, fallback.generations ?? 20),
+      selectionRate: getNum(refs.inputs.selection, fallback.selectionRate ?? 40),
+      crossoverRate: getNum(refs.inputs.crossover, fallback.crossoverRate ?? 45),
+      mutationRate: getNum(refs.inputs.mutation, fallback.mutationRate ?? 15),
+      tournamentSize: getNum(refs.inputs.tournament, fallback.tournamentSize ?? 3),
+      randomSeed: getNum(refs.inputs.seed, fallback.randomSeed ?? 1234),
+      episodesPerIndividual: getNum(refs.inputs.episodes, fallback.episodesPerIndividual ?? 3),
+      maxStepsPerEpisode: fallback.maxStepsPerEpisode ?? (window.gameConstants?.DEFAULTS?.stepLimit || 2000)
+    };
+  }
+
   function validateParametersForm(refs) {
     if (!refs || !refs.inputs) return true;
     const selection = Number(refs.inputs.selection.value) || 0;
@@ -57,6 +82,7 @@
   window.uiForms = {
     applyDefaults,
     validateParametersForm,
-    bindFormValidation
+    bindFormValidation,
+    readUIConfig
   };
 })();

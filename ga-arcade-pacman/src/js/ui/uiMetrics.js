@@ -22,6 +22,20 @@
     }
   }
 
+  /**
+   * Actualiza métricas numéricas básicas (fitness, generación, tiempos).
+   * @param {Object} refs
+   * @param {Object} metrics { bestFitness, averageFitness, generation, totalTime, averageTime }
+   */
+  function updateTrainingMetrics(refs, metrics) {
+    if (!refs || !metrics) return;
+    updateMetricValue(refs.metrics.best, metrics.bestFitness ?? '--');
+    updateMetricValue(refs.metrics.avg, metrics.averageFitness ?? '--');
+    updateMetricValue(refs.metrics.generation, metrics.generation ?? '--');
+    updateMetricValue(refs.metrics.totalTime, metrics.totalTime ?? '--');
+    updateMetricValue(refs.metrics.avgTime, metrics.averageTime ?? '--');
+  }
+
   function updateMetrics(refs, metrics) {
     if (!refs || !metrics) return;
     updateMetricValue(refs.metrics.best, metrics.bestFitness ?? '--');
@@ -75,9 +89,61 @@
     });
   }
 
+  /**
+   * Dibuja la gráfica de evolución de fitness (best y avg).
+   * @param {Object} refs
+   * @param {number[]} bestSeries
+   * @param {number[]} avgSeries
+   */
+  function renderFitnessGraph(refs, bestSeries = [], avgSeries = []) {
+    if (!refs?.game?.metricsCanvas) return;
+    const canvas = refs.game.metricsCanvas;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const padding = 18;
+    const width = canvas.width - padding * 2;
+    const height = canvas.height - padding * 2;
+    const maxVal = Math.max(1, ...bestSeries, ...avgSeries);
+
+    ctx.fillStyle = '#0f0f0f';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.strokeRect(padding, padding, width, height);
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i <= 3; i += 1) {
+      const y = padding + (height / 4) * i;
+      ctx.beginPath();
+      ctx.moveTo(padding, y);
+      ctx.lineTo(padding + width, y);
+      ctx.stroke();
+    }
+
+    plotSeries(ctx, bestSeries, padding, width, height, maxVal, '#00bcd4');
+    plotSeries(ctx, avgSeries, padding, width, height, maxVal, '#ffc107');
+  }
+
+  function plotSeries(ctx, series, padding, width, height, maxVal, color) {
+    if (!series.length) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    series.forEach((val, idx) => {
+      const x = padding + (idx / Math.max(1, series.length - 1)) * width;
+      const y = padding + height - (val / maxVal) * height;
+      if (idx === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
   window.uiMetrics = {
     updateStatusBadge,
     updateMetrics,
-    renderPlaceholderGraph
+    updateTrainingMetrics,
+    renderPlaceholderGraph,
+    renderFitnessGraph
   };
 })();
