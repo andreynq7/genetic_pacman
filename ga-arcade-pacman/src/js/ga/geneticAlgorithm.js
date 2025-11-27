@@ -133,7 +133,7 @@
       }
       sum += ind.fitness;
       if (!best || ind.fitness > best.fitness) {
-        best = { ...ind, id: ind.id };
+        best = { ...ind, id: ind.id, generation: gaState.generation };
       }
     });
 

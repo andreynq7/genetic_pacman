@@ -159,6 +159,29 @@
     return runState.gaState?.bestEver?.chromosome || null;
   }
 
+  /** Devuelve el mejor fitness global alcanzado. */
+  function getBestFitness() {
+    return runState.gaState?.bestEver?.fitness ?? null;
+  }
+
+  /** Devuelve info del mejor individuo global (cromosoma, fitness, generación). */
+  function getBestInfo() {
+    if (!runState.gaState?.bestEver) return null;
+    const best = runState.gaState.bestEver;
+    return {
+      chromosome: best.chromosome,
+      fitness: best.fitness,
+      generation: best.generation ?? runState.gaState.generation
+    };
+  }
+  /** Configuración actual del GA. */
+  function getGAConfig() {
+    return runState.gaConfig;
+  }
+  /** Configuración actual de fitness. */
+  function getFitnessConfig() {
+    return runState.fitnessConfig;
+  }
   function getStatus() {
     return {
       status: runState.status,
@@ -170,15 +193,23 @@
   function getHistory() {
     return runState.gaState?.history || { bestFitness: [], avgFitness: [] };
   }
+  function getTiming() {
+    return runState.timing;
+  }
 
-  window.gaController = {
-    initializeFromUI,
-    start,
-    pause,
-    resume,
-    reset,
-    getBestChromosome,
-    getStatus,
-    getHistory
-  };
+   window.gaController = {
+     initializeFromUI,
+     start,
+     pause,
+     resume,
+     reset,
+     getBestChromosome,
+    getBestFitness,
+    getBestInfo,
+    getGAConfig,
+    getFitnessConfig,
+     getStatus,
+    getHistory,
+    getTiming
+   };
 })();

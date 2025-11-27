@@ -90,7 +90,7 @@
   }
 
   /**
-   * Dibuja la gráfica de evolución de fitness (best y avg).
+   * Dibuja la gráfica de evolución de fitness (best y avg por generación).
    * @param {Object} refs
    * @param {number[]} bestSeries
    * @param {number[]} avgSeries

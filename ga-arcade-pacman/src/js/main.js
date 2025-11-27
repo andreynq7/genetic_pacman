@@ -16,7 +16,9 @@
       onStart: handleStartTraining,
       onPause: handlePauseResume,
       onReset: handleReset,
-      onDemo: handleDemoBest
+      onDemo: handleDemoBest,
+      onExportBest: handleExportBest,
+      onExportRun: handleExportRun
     });
     bindKeyboard();
 
@@ -146,6 +148,61 @@
     }
   }
 
+  // ----------------- Exportaciones -----------------
+  /**
+   * Handler para exportar el mejor individuo como best.json.
+   * Flujo: obtiene best de gaController -> arma objeto con config y timestamp -> descarga.
+   */
+  function handleExportBest() {
+    const best = gaController.getBestInfo();
+    if (!best || !best.chromosome) {
+      console.warn('No hay mejor individuo todavía. Entrene el GA primero.');
+      return;
+    }
+    const config = {
+      gaConfig: gaController.getGAConfig(),
+      fitnessConfig: gaController.getFitnessConfig()
+    };
+    const payload = {
+      chromosome: best.chromosome,
+      fitness: best.fitness,
+      generation: best.generation,
+      config,
+      timestamp: new Date().toISOString()
+    };
+    const filename = `best_${formatTimestampForFile()}.json`;
+    downloadJson(payload, filename);
+  }
+
+  /**
+   * Handler para exportar configuración y logs de la corrida.
+   * Genera dos JSON: config_run_*.json y logs_run_*.json.
+   */
+  function handleExportRun() {
+    const history = gaController.getHistory();
+    const hasData = (history?.bestFitness?.length || 0) > 0;
+    if (!hasData) {
+      console.warn('No hay datos de entrenamiento todavía.');
+      return;
+    }
+    const status = gaController.getStatus();
+    const configExport = {
+      gaConfig: gaController.getGAConfig(),
+      fitnessConfig: gaController.getFitnessConfig(),
+      generationCount: status.generation,
+      timestamp: new Date().toISOString()
+    };
+    const logsExport = {
+      history,
+      generationCount: status.generation,
+      timing: gaController.getTiming(),
+      timestamp: new Date().toISOString()
+    };
+    const ts = formatTimestampForFile();
+    downloadJson(configExport, `config_run_${ts}.json`);
+    downloadJson(logsExport, `logs_run_${ts}.json`);
+  }
+
   // ----------------- Simulación de juego y entrada -----------------
   function stepDemo(action) {
     if (!currentState) return;
@@ -182,6 +239,30 @@
   function formatNumber(val) {
     if (val == null || Number.isNaN(val)) return '--';
     return Number(val).toFixed(2);
+  }
+
+  function formatTimestampForFile() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+  }
+
+  /**
+   * Descarga un objeto JSON como archivo (usa Blob y enlace temporal).
+   * @param {Object} obj
+   * @param {string} filename
+   */
+  function downloadJson(obj, filename = 'data.json') {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   document.addEventListener('DOMContentLoaded', initApp);

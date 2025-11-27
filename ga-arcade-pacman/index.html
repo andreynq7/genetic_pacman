@@ -98,6 +98,8 @@
           <button type="button" id="pause-btn" class="btn">Pause</button>
           <button type="button" id="reset-btn" class="btn">Reset</button>
           <button type="button" id="demo-btn" class="btn ghost">Demo best</button>
+          <button type="button" id="export-best-btn" class="btn">Export Best</button>
+          <button type="button" id="export-run-btn" class="btn">Export Run Data</button>
         </div>
       </div>
 
@@ -127,8 +129,8 @@
         </div>
         <div class="metrics-graph">
           <div class="graph-header">
-            <span>Fitness vs Generaciones</span>
-            <span class="graph-note">Placeholder</span>
+            <span>Fitness (Mejor vs Promedio)</span>
+            <span class="graph-note">Evolución del entrenamiento</span>
           </div>
           <canvas id="metrics-canvas" width="360" height="180"></canvas>
         </div>
@@ -142,20 +144,23 @@
   </footer>
 
   <script src="./src/config/defaultConfig.js"></script>
-  <script src="./src/js/utils/domHelpers.js"></script>
-  <script src="./src/js/ui/uiLayout.js"></script>
-  <script src="./src/js/ui/uiForms.js"></script>
-  <script src="./src/js/ui/uiControls.js"></script>
-  <script src="./src/js/ui/uiMetrics.js"></script>
-  <script src="./src/js/game/gameView.js"></script>
-  <script src="./src/js/game/gameConstants.js"></script>
-  <script src="./src/js/game/gameState.js"></script>
-  <script src="./src/js/game/gameLogic.js"></script>
-  <script src="./src/js/agent/policyEncoding.js"></script>
-  <script src="./src/js/ga/fitnessEvaluator.js"></script>
-  <script src="./src/js/ga/geneticAlgorithm.js"></script>
-  <script src="./src/js/ga/gaController.js"></script>
-  <script src="./src/js/game/episodeSimulator.js"></script>
-  <script src="./src/js/main.js"></script>
+<script src="./src/js/utils/domHelpers.js"></script>
+<script src="./src/js/ui/uiLayout.js"></script>
+<script src="./src/js/ui/uiForms.js"></script>
+<script src="./src/js/ui/uiControls.js"></script>
+<script src="./src/js/ui/uiMetrics.js"></script>
+
+<script src="./src/js/game/gameView.js"></script>
+<script src="./src/js/game/gameConstants.js"></script>
+<script src="./src/js/game/gameState.js"></script>
+<script src="./src/js/game/gameLogic.js"></script>
+<script src="./src/js/game/episodeSimulator.js"></script> 
+<script src="./src/js/agent/policyEncoding.js"></script>
+<script src="./src/js/ga/fitnessEvaluator.js"></script>
+<script src="./src/js/ga/geneticAlgorithm.js"></script>
+<script src="./src/js/ga/gaController.js"></script>
+
+<script src="./src/js/main.js"></script>
+
 </body>
 </html>

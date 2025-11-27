@@ -24,7 +24,9 @@
       start: domHelpers.getById('start-btn'),
       pause: domHelpers.getById('pause-btn'),
       reset: domHelpers.getById('reset-btn'),
-      demo: domHelpers.getById('demo-btn')
+      demo: domHelpers.getById('demo-btn'),
+      exportBest: domHelpers.getById('export-best-btn'),
+      exportRun: domHelpers.getById('export-run-btn')
     };
 
     refs.statusBadge = domHelpers.getById('status-badge');
