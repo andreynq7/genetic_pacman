@@ -81,6 +81,7 @@
     const matrix = normalizeLevel(options.levelMap);
     const pacSpawn = findPacmanSpawn(matrix, options.pacmanSpawn || C.DEFAULTS.pacmanSpawn);
     const ghostSpawns = findGhostSpawns(matrix, options.ghostSpawns || C.DEFAULTS.ghostSpawns);
+    const level = options.level ?? 1;
 
     // Limpia las marcas de spawn en el mapa para que cuenten como camino.
     if (matrix[pacSpawn.row][pacSpawn.col] === T.PACMAN_SPAWN || matrix[pacSpawn.row][pacSpawn.col] === T.PELLET) {
@@ -97,8 +98,10 @@
     return {
       map: matrix,
       pelletsRemaining: pelletInfo.total,
+      initialPellets: pelletInfo.total,
       score: 0,
       lives: options.lives ?? C.DEFAULTS.lives,
+      level,
       steps: 0,
       stepLimit: options.stepLimit ?? C.DEFAULTS.stepLimit,
       stepsSinceLastPellet: 0,
@@ -131,8 +134,10 @@
     return {
       map: state.map.map((row) => row.slice()),
       pelletsRemaining: state.pelletsRemaining,
+      initialPellets: state.initialPellets,
       score: state.score,
       lives: state.lives,
+      level: state.level,
       steps: state.steps,
       stepLimit: state.stepLimit,
       stepsSinceLastPellet: state.stepsSinceLastPellet,

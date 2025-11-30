@@ -95,6 +95,31 @@
     clearLoop();
   }
 
+  /**
+   * Extiende el n�mero de generaciones objetivo usando el estado actual.
+   * Permite seguir mejorando sin perder el mejor individuo hallado.
+   * @param {number} extraGenerations Generaciones adicionales a correr.
+   */
+  function extendGenerations(extraGenerations) {
+    if (!runState.gaState || !Number.isFinite(extraGenerations)) return null;
+    const extra = Math.max(1, Math.floor(extraGenerations));
+    runState.maxGenerations += extra;
+    if (runState.gaConfig) {
+      runState.gaConfig = { ...runState.gaConfig, generations: runState.maxGenerations };
+    }
+    if (runState.status === 'finished' || runState.status === 'idle') {
+      runState.status = 'running';
+      scheduleLoop();
+    } else if (runState.status === 'paused') {
+      runState.status = 'running';
+      scheduleLoop();
+    }
+    return {
+      targetGeneration: runState.maxGenerations,
+      currentGeneration: runState.gaState.generation
+    };
+  }
+
   /** Ejecuta una sola generación; se usa internamente por el loop. */
   function tickGeneration() {
     if (!runState.gaState || runState.status !== 'running') return;
@@ -203,6 +228,7 @@
      pause,
      resume,
      reset,
+     extendGenerations,
      getBestChromosome,
     getBestFitness,
     getBestInfo,

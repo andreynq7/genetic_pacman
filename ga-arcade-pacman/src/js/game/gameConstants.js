@@ -79,23 +79,40 @@
       { col: 14, row: 12 }
     ],
     lives: 3,
-    powerDurationSteps: 50,
+    powerDurationSteps: 60,
     stepLimit: 2000
   };
 
   const REWARDS = {
-    pellet: 15,
-    powerPellet: 50,
+    pellet: 25,
+    powerPellet: 80,
     step: -0.5,
     death: -2000,
-    ghostEaten: 800,
-    levelClear: 1300
+    ghostEaten: 400,
+    levelClear: 1500
   };
 
   // Penalización por estancamiento (demasiados pasos sin comer pellet)
   const STALL = {
     STEP_THRESHOLD: 40,
     PENALTY: -200
+  };
+
+  // Reglas de balance para no sacrificar progreso por perseguir fantasmas.
+  const BALANCE = {
+    // Solo perseguir automáticamente fantasmas asustados si ya se avanzó lo suficiente
+    // y la ruta hasta ellos es corta.
+    powerChaseMinProgress: 0.35, // proporción de pellets ya comidos [0,1]
+    powerChaseMaxPath: 10       // pasos máximos que permitimos desviarnos tras un fantasma
+  };
+
+  // Escalado de dificultad por nivel.
+  const DIFFICULTY = {
+    powerDurationDecay: 0.82,
+    minPowerDuration: 12,
+    ghostChaseBase: 0.0,
+    ghostChaseGrowth: 0.12,
+    ghostChaseMax: 0.85
   };
 
   window.gameConstants = {
@@ -108,6 +125,8 @@
     DIR_VECTORS,
     DEFAULTS,
     REWARDS,
-    STALL
+    STALL,
+    BALANCE,
+    DIFFICULTY
   };
 })();

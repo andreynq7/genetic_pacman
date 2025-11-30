@@ -15,6 +15,7 @@
     uiControls.bindControls(refs, {
       onStart: handleStartTraining,
       onPause: handlePauseResume,
+      onExtend: handleExtendTraining,
       onReset: handleReset,
       onDemo: handleDemoBest,
       onExportBest: handleExportBest,
@@ -77,6 +78,29 @@
       uiMetrics.updateStatusBadge('Entrenando', 'training');
     } else if (demoTimer) {
       pauseDemoLoop();
+    }
+  }
+
+  function handleExtendTraining() {
+    if (!uiForms.validateParametersForm(refs)) return;
+    stopDemo();
+    const uiConfig = uiForms.readUIConfig(refs, window.defaultConfig || {});
+    const extraGenerations = Math.max(1, Math.floor(uiConfig.generations || 0));
+    const status = gaController.getStatus();
+
+    // Si todavía no hay entrenamiento activo, iniciar uno nuevo.
+    if (!gaController.getGAConfig() || status.status === 'idle') {
+      handleStartTraining();
+      return;
+    }
+
+    const result = gaController.extendGenerations(extraGenerations);
+    if (result) {
+      uiMetrics.updateStatusBadge('Entrenando', 'training');
+      const refreshedStatus = gaController.getStatus();
+      if (refreshedStatus.status !== 'running') {
+        gaController.resume();
+      }
     }
   }
 
@@ -150,6 +174,15 @@
     }
   }
 
+  // Permite salir del overlay de Game Over y reiniciar el juego para seguir probando.
+  function resetAfterGameOver() {
+    stopDemo();
+    hideGameOverModal();
+    currentState = gameState.createInitialState();
+    uiMetrics.updateStatusBadge('Idle', 'idle');
+    render();
+  }
+
   // ----------------- Exportaciones -----------------
   /**
    * Handler para exportar el mejor individuo como best.json.
@@ -219,11 +252,12 @@
         showGameOverModal();
       } else if (reason === 'life_lost' && result.state.lives > 0) {
         // Reinicia el nivel conservando vidas restantes.
-        currentState = gameState.createInitialState({ lives: result.state.lives });
+        currentState = gameState.createInitialState({ lives: result.state.lives, level: result.state.level });
         render();
       } else {
         // Reinicio por limpieza de nivel u otra razón.
-        currentState = gameState.createInitialState({ lives: result.state.lives });
+        const nextLevel = reason === 'level_cleared' ? (result.state.level || 1) + 1 : (result.state.level || 1);
+        currentState = gameState.createInitialState({ lives: result.state.lives, level: nextLevel });
         render();
       }
     }
@@ -285,6 +319,11 @@
     const actions = document.createElement('div');
     Object.assign(actions.style, { display: 'flex', gap: '10px' });
 
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'Cerrar y reiniciar';
+    closeBtn.className = 'btn';
+    closeBtn.onclick = resetAfterGameOver;
+
     const exportBestBtn = document.createElement('button');
     exportBestBtn.textContent = 'Export Best';
     exportBestBtn.className = 'btn';
@@ -295,6 +334,7 @@
     exportRunBtn.className = 'btn';
     exportRunBtn.onclick = handleExportRun;
 
+    actions.appendChild(closeBtn);
     actions.appendChild(exportBestBtn);
     actions.appendChild(exportRunBtn);
     overlay.appendChild(title);

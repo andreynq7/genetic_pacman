@@ -23,6 +23,7 @@
     refs.controls = {
       start: domHelpers.getById('start-btn'),
       pause: domHelpers.getById('pause-btn'),
+      extend: domHelpers.getById('extend-btn'),
       reset: domHelpers.getById('reset-btn'),
       demo: domHelpers.getById('demo-btn'),
       exportBest: domHelpers.getById('export-best-btn'),

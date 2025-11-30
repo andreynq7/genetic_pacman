@@ -4,11 +4,11 @@
    * Asocia handlers a los botones principales. Si no se provee handler,
    * se hace no-op.
    * @param {Object} refs
-   * @param {Object} handlers { onStart, onPause, onReset, onDemo, onExportBest, onExportRun }
+   * @param {Object} handlers { onStart, onPause, onExtend, onReset, onDemo, onExportBest, onExportRun }
    */
   function bindControls(refs, handlers = {}) {
     if (!refs || !refs.controls) return;
-    const { start, pause, reset, demo, exportBest, exportRun } = refs.controls;
+    const { start, pause, extend, reset, demo, exportBest, exportRun } = refs.controls;
 
     start?.addEventListener('click', () => {
       handlers.onStart?.();
@@ -16,6 +16,10 @@
 
     pause?.addEventListener('click', () => {
       handlers.onPause?.();
+    });
+
+    extend?.addEventListener('click', () => {
+      handlers.onExtend?.();
     });
 
     reset?.addEventListener('click', () => {

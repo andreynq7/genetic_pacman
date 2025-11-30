@@ -57,14 +57,23 @@
    * @param {string} proposedAction
    */
   function chooseActionWithPower(state, proposedAction) {
+    if (state.powerTimer <= 0) return proposedAction;
     const frightenedGhost = getNearestFrightenedGhost(state);
-    if (state.powerTimer > 0 && frightenedGhost) {
-      const path = findPathAStar(state, { col: state.pacman.col, row: state.pacman.row }, { col: frightenedGhost.col, row: frightenedGhost.row });
-      if (path && path.length > 1) {
-        const nextStep = path[1];
-        const actionFromPath = directionFromStep(state.pacman, nextStep);
-        if (actionFromPath) return actionFromPath;
-      }
+    if (!frightenedGhost) return proposedAction;
+
+    const minProgress = C.BALANCE?.powerChaseMinProgress ?? 0;
+    const maxPath = C.BALANCE?.powerChaseMaxPath ?? Infinity;
+    const initialPellets = state.initialPellets || state.pelletsRemaining || 1;
+    const progress = 1 - (state.pelletsRemaining / initialPellets);
+
+    const path = findPathAStar(state, { col: state.pacman.col, row: state.pacman.row }, { col: frightenedGhost.col, row: frightenedGhost.row });
+    const pathLen = path ? path.length - 1 : Infinity;
+    const shouldChase = progress >= minProgress && pathLen <= maxPath;
+
+    if (shouldChase && path && path.length > 1) {
+      const nextStep = path[1];
+      const actionFromPath = directionFromStep(state.pacman, nextStep);
+      if (actionFromPath) return actionFromPath;
     }
     return proposedAction;
   }
@@ -169,7 +178,7 @@
 
       const withoutReverse = options.filter((opt) => opt.action !== oppositeDirection(ghost.dir));
       const candidates = withoutReverse.length ? withoutReverse : options;
-      const choice = candidates[Math.floor(Math.random() * candidates.length)];
+      const choice = pickGhostMove(state, ghost, candidates);
 
       ghost.col = choice.col;
       ghost.row = choice.row;
@@ -202,9 +211,10 @@
    * @param {Object} state
    */
   function setGhostsFrightened(state) {
-    state.powerTimer = C.DEFAULTS.powerDurationSteps;
+    const duration = powerDurationForLevel(state.level || 1);
+    state.powerTimer = duration;
     state.ghosts.forEach((ghost) => {
-      ghost.frightenedTimer = C.DEFAULTS.powerDurationSteps;
+      ghost.frightenedTimer = duration;
       ghost.eatenThisPower = false;
     });
   }
@@ -394,6 +404,38 @@
     return Math.abs(c1 - c2) + Math.abs(r1 - r2);
   }
 
+  // Selecciona un movimiento de fantasma con sesgo creciente a perseguir a Pac-Man seg�n nivel.
+  function pickGhostMove(state, ghost, candidates) {
+    if (!candidates.length) return { ...ghost, action: C.ACTIONS.STAY };
+    // Si est� asustado, mantiene movimiento aleatorio para facilitar comerlo.
+    if (ghost.frightenedTimer > 0) {
+      return candidates[Math.floor(Math.random() * candidates.length)];
+    }
+    const level = state.level || 1;
+    const prob = ghostChaseProbability(level);
+    if (Math.random() < prob) {
+      let best = candidates[0];
+      let bestDist = manhattan(candidates[0].col, candidates[0].row, state.pacman.col, state.pacman.row);
+      for (let i = 1; i < candidates.length; i += 1) {
+        const d = manhattan(candidates[i].col, candidates[i].row, state.pacman.col, state.pacman.row);
+        if (d < bestDist) {
+          bestDist = d;
+          best = candidates[i];
+        }
+      }
+      return best;
+    }
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  function ghostChaseProbability(level) {
+    const base = C.DIFFICULTY?.ghostChaseBase ?? 0;
+    const growth = C.DIFFICULTY?.ghostChaseGrowth ?? 0;
+    const max = C.DIFFICULTY?.ghostChaseMax ?? 1;
+    const prob = base + (Math.max(1, level) - 1) * growth;
+    return Math.min(max, Math.max(0, prob));
+  }
+
   function directionFromStep(from, to) {
     const dc = to.col - from.col;
     const dr = to.row - from.row;
@@ -402,6 +444,15 @@
     if (dc === -1 && dr === 0) return C.ACTIONS.LEFT;
     if (dc === 1 && dr === 0) return C.ACTIONS.RIGHT;
     return null;
+  }
+
+  function powerDurationForLevel(level) {
+    const base = C.DEFAULTS.powerDurationSteps;
+    const decay = C.DIFFICULTY?.powerDurationDecay ?? 1;
+    const min = C.DIFFICULTY?.minPowerDuration ?? 0;
+    const lvl = Math.max(1, level);
+    const duration = Math.round(base * Math.pow(decay, lvl - 1));
+    return Math.max(min, duration);
   }
 
   window.gameLogic = {
