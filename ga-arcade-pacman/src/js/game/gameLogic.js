@@ -1,6 +1,7 @@
 ﻿/**
  * Lógica paso a paso del juego (sin render). Define stepGame(state, action)
  * que devuelve nuevo estado, recompensa y si terminó el episodio.
+ * Incluye: penalización por estancamiento y persecución de fantasmas comestibles con A* en modo power.
  */
 (function() {
   const C = window.gameConstants;
@@ -9,6 +10,8 @@
 
   /**
    * Ejecuta un paso de simulación discreto.
+   * Nota: la acción propuesta puede ser anulada en modo power para perseguir
+   * fantasmas comestibles con A* en tiempo real.
    * @param {Object} state Estado actual (no se muta; se clona dentro).
    * @param {string} action Acción discreta (gameConstants.ACTIONS).
    * @returns {{state:Object,reward:number,done:boolean,info:Object}}
@@ -21,9 +24,13 @@
 
     let reward = C.REWARDS.step;
     next.steps += 1;
+    next.stepsSinceLastPellet += 1;
 
-    applyPacmanMove(next, action);
+    const effectiveAction = chooseActionWithPower(next, action);
+
+    applyPacmanMove(next, effectiveAction);
     reward += handleConsumables(next);
+    reward += applyStallPenalty(next);
 
     // Colisión antes del movimiento de fantasmas (por si Pac-Man entra a la casa)
     reward += handleCollisions(next, { checkBeforeGhosts: true });
@@ -41,6 +48,25 @@
     }
     const info = { reason: next.status, pelletsRemaining: next.pelletsRemaining, lives: next.lives };
     return { state: next, reward, done, info };
+  }
+
+  /**
+   * Selecciona la acción efectiva, anulando la acción de la política si hay modo power
+   * y fantasmas comestibles, persiguiéndolos con A* en tiempo real.
+   * @param {Object} state
+   * @param {string} proposedAction
+   */
+  function chooseActionWithPower(state, proposedAction) {
+    const frightenedGhost = getNearestFrightenedGhost(state);
+    if (state.powerTimer > 0 && frightenedGhost) {
+      const path = findPathAStar(state, { col: state.pacman.col, row: state.pacman.row }, { col: frightenedGhost.col, row: frightenedGhost.row });
+      if (path && path.length > 1) {
+        const nextStep = path[1];
+        const actionFromPath = directionFromStep(state.pacman, nextStep);
+        if (actionFromPath) return actionFromPath;
+      }
+    }
+    return proposedAction;
   }
 
   /**
@@ -72,14 +98,30 @@
       state.pelletsRemaining -= 1;
       state.score += C.REWARDS.pellet;
       reward += C.REWARDS.pellet;
+      state.stepsSinceLastPellet = 0;
     } else if (tile === T.POWER) {
       state.map[state.pacman.row][state.pacman.col] = T.PATH;
       state.pelletsRemaining -= 1;
       state.score += C.REWARDS.powerPellet;
       reward += C.REWARDS.powerPellet;
+      state.stepsSinceLastPellet = 0;
       setGhostsFrightened(state);
     }
     return reward;
+  }
+
+  /**
+   * Penaliza estancamiento si se superó el umbral de pasos sin comer pellet.
+   * Reinicia el contador tras aplicar la penalización.
+   */
+  function applyStallPenalty(state) {
+    if (!C.STALL) return 0;
+    if (state.stepsSinceLastPellet >= C.STALL.STEP_THRESHOLD) {
+      state.stepsSinceLastPellet = 0;
+      state.score += C.STALL.PENALTY;
+      return C.STALL.PENALTY;
+    }
+    return 0;
   }
 
   /**
@@ -244,6 +286,111 @@
     if (!moves.length) return C.ACTIONS.STAY;
     const choice = moves[Math.floor(Math.random() * moves.length)];
     return choice.action;
+  }
+
+  /**
+   * Encuentra el fantasma comestible más cercano (por distancia Manhattan).
+   * @param {Object} state
+   */
+  function getNearestFrightenedGhost(state) {
+    if (!state.ghosts?.length || state.powerTimer <= 0) return null;
+    let best = null;
+    let bestDist = Infinity;
+    state.ghosts.forEach((ghost) => {
+      if (ghost.frightenedTimer > 0) {
+        const dist = manhattan(state.pacman.col, state.pacman.row, ghost.col, ghost.row);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = ghost;
+        }
+      }
+    });
+    return best;
+  }
+
+  /**
+   * Aplica A* sobre el grid actual para encontrar un camino al objetivo.
+   * @param {Object} state
+   * @param {{col:number,row:number}} start
+   * @param {{col:number,row:number}} goal
+   * @returns {Array<{col:number,row:number}>|null}
+   */
+  function findPathAStar(state, start, goal) {
+    const startKey = key(start.col, start.row);
+    const goalKey = key(goal.col, goal.row);
+    const open = new Set([startKey]);
+    const cameFrom = {};
+    const gScore = {};
+    const fScore = {};
+    gScore[startKey] = 0;
+    fScore[startKey] = manhattan(start.col, start.row, goal.col, goal.row);
+    const goalIsGate = getTile(state.map, goal.col, goal.row) === T.GHOST_GATE;
+
+    while (open.size > 0) {
+      const currentKey = lowestF(open, fScore);
+      const [cc, cr] = currentKey.split(',').map(Number);
+      if (currentKey === goalKey) {
+        return reconstructPath(cameFrom, currentKey);
+      }
+
+      open.delete(currentKey);
+      const neighbors = getValidMoves(state.map, cc, cr, goalIsGate);
+      neighbors.forEach((n) => {
+        const nKey = key(n.col, n.row);
+        const tentativeG = (gScore[currentKey] ?? Infinity) + 1;
+        if (tentativeG < (gScore[nKey] ?? Infinity)) {
+          cameFrom[nKey] = currentKey;
+          gScore[nKey] = tentativeG;
+          fScore[nKey] = tentativeG + manhattan(n.col, n.row, goal.col, goal.row);
+          open.add(nKey);
+        }
+      });
+    }
+    return null;
+  }
+
+  function reconstructPath(cameFrom, currentKey) {
+    const path = [currentKey];
+    let cur = currentKey;
+    while (cameFrom[cur]) {
+      cur = cameFrom[cur];
+      path.unshift(cur);
+    }
+    return path.map((k) => {
+      const [c, r] = k.split(',').map(Number);
+      return { col: c, row: r };
+    });
+  }
+
+  function lowestF(open, fScore) {
+    let bestKey = null;
+    let bestVal = Infinity;
+    open.forEach((k) => {
+      const val = fScore[k] ?? Infinity;
+      if (val < bestVal) {
+        bestVal = val;
+        bestKey = k;
+      }
+    });
+    return bestKey;
+  }
+
+  function key(col, row) {
+    return `${col},${row}`;
+  }
+
+  function manhattan(c1, r1, c2, r2) {
+    return Math.abs(c1 - c2) + Math.abs(r1 - r2);
+  }
+
+  function directionFromStep(from, to) {
+    const dc = to.col - from.col;
+    const dr = to.row - from.row;
+    if (dc === 0 && dr === -1) return C.ACTIONS.UP;
+    if (dc === 0 && dr === 1) return C.ACTIONS.DOWN;
+    if (dc === -1 && dr === 0) return C.ACTIONS.LEFT;
+    if (dc === 1 && dr === 0) return C.ACTIONS.RIGHT;
+    return null;
   }
 
   window.gameLogic = {

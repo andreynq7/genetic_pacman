@@ -20,7 +20,6 @@
       onExportBest: handleExportBest,
       onExportRun: handleExportRun
     });
-    bindKeyboard();
 
     uiMetrics.updateTrainingMetrics(refs, {
       bestFitness: '--',
@@ -52,7 +51,8 @@
   function syncHud() {
     if (!refs?.game?.statusBar || !currentState) return;
     domHelpers.setText(refs.game.statusBar.score, currentState.score);
-    domHelpers.setText(refs.game.statusBar.level, '1');
+    const level = currentState.level ?? 1;
+    domHelpers.setText(refs.game.statusBar.level, level);
     domHelpers.setText(refs.game.statusBar.lives, currentState.lives);
   }
 
@@ -82,6 +82,7 @@
 
   function handleReset() {
     stopDemo();
+    hideGameOverModal();
     gaController.reset();
     uiMetrics.updateStatusBadge('Idle', 'idle');
     uiMetrics.updateTrainingMetrics(refs, {
@@ -122,6 +123,7 @@
   // ----------------- Demo del mejor individuo -----------------
   function handleDemoBest() {
     stopDemo();
+    hideGameOverModal();
     const best = gaController.getBestChromosome();
     if (best) {
       demoPolicyFn = policyEncoding.policyFromChromosome(best, { tieBreak: 'random' });
@@ -210,31 +212,24 @@
     currentState = result.state;
     render();
     if (result.done && demoTimer) {
-      // Reinicia episodio en modo demo para seguir mostrando recorrido.
-      currentState = gameState.createInitialState();
-    }
-  }
-
-  function bindKeyboard() {
-    document.addEventListener('keydown', (evt) => {
-      const action = keyToAction(evt.key);
-      if (action) {
-        evt.preventDefault();
-        stepDemo(action);
+      const reason = result.state.status;
+      if ((reason === 'life_lost' || reason === 'game_over') && result.state.lives <= 0) {
+        stopDemo();
+        uiMetrics.updateStatusBadge('Game Over', 'paused');
+        showGameOverModal();
+      } else if (reason === 'life_lost' && result.state.lives > 0) {
+        // Reinicia el nivel conservando vidas restantes.
+        currentState = gameState.createInitialState({ lives: result.state.lives });
+        render();
+      } else {
+        // Reinicio por limpieza de nivel u otra razón.
+        currentState = gameState.createInitialState({ lives: result.state.lives });
+        render();
       }
-    });
-  }
-
-  function keyToAction(key) {
-    switch (key) {
-      case 'ArrowUp': return gameConstants.ACTIONS.UP;
-      case 'ArrowDown': return gameConstants.ACTIONS.DOWN;
-      case 'ArrowLeft': return gameConstants.ACTIONS.LEFT;
-      case 'ArrowRight': return gameConstants.ACTIONS.RIGHT;
-      case ' ': return gameConstants.ACTIONS.STAY;
-      default: return null;
     }
   }
+
+
 
   function formatNumber(val) {
     if (val == null || Number.isNaN(val)) return '--';
@@ -263,6 +258,53 @@
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  }
+
+  // ----------------- Game Over Modal -----------------
+  function showGameOverModal() {
+    hideGameOverModal();
+    const overlay = document.createElement('div');
+    overlay.id = 'game-over-overlay';
+    Object.assign(overlay.style, {
+      position: 'fixed',
+      inset: '0',
+      background: 'rgba(0,0,0,0.78)',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '12px',
+      zIndex: '9999',
+      color: '#f5f5f5'
+    });
+
+    const title = document.createElement('div');
+    title.textContent = 'Game Over';
+    Object.assign(title.style, { fontSize: '22px', fontWeight: '700' });
+
+    const actions = document.createElement('div');
+    Object.assign(actions.style, { display: 'flex', gap: '10px' });
+
+    const exportBestBtn = document.createElement('button');
+    exportBestBtn.textContent = 'Export Best';
+    exportBestBtn.className = 'btn';
+    exportBestBtn.onclick = handleExportBest;
+
+    const exportRunBtn = document.createElement('button');
+    exportRunBtn.textContent = 'Export Run Data';
+    exportRunBtn.className = 'btn';
+    exportRunBtn.onclick = handleExportRun;
+
+    actions.appendChild(exportBestBtn);
+    actions.appendChild(exportRunBtn);
+    overlay.appendChild(title);
+    overlay.appendChild(actions);
+    document.body.appendChild(overlay);
+  }
+
+  function hideGameOverModal() {
+    const existing = document.getElementById('game-over-overlay');
+    if (existing) existing.remove();
   }
 
   document.addEventListener('DOMContentLoaded', initApp);

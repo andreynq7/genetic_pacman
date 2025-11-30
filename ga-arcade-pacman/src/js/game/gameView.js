@@ -26,7 +26,7 @@
     'WWWWWW.WWWWW WW WWWWW.WWWWWW',
     'WWWWWW.WWWWW WW WWWWW.WWWWWW',
     'WWWWWW.WW          WW.WWWWWW',
-    'WWWWWW.WW WGGGGGGW WW.WWWWWW',
+    'WWWWWW.WW WWGGGGWW WW.WWWWWW',
     'WWWWWW.WW WWWWWWWW WW.WWWWWW',
     'W............WW............W',
     'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
@@ -43,7 +43,7 @@
     'W......WW....WW....WW......W',
     'WoWWWWWWWWWW.WW.WWWWWWWWWWoW',
     'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
-    'W..........................W',
+    'W..............P...........W',
     'WWWWWWWWWWWWWWWWWWWWWWWWWWWW'
   ];
 
@@ -176,7 +176,7 @@
     if (state.ghosts && state.ghosts.length) {
       state.ghosts.forEach((ghost, idx) => {
         const { x, y } = gridToPixel(ghost.col, ghost.row);
-        const bodyColor = ghost.frightenedTimer > 0 ? '#4caf50' : ['#ff5252', '#00bcd4', '#e91e63', '#8bc34a'][idx % 4];
+        const bodyColor = ghost.frightenedTimer > 0 ? '#e9f1eaff' : ['#ff5252', '#00bcd4', '#e91e63', '#8bc34a'][idx % 4];
         ctx.fillStyle = bodyColor;
         ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
       });

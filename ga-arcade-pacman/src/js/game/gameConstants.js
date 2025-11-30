@@ -84,12 +84,18 @@
   };
 
   const REWARDS = {
-    pellet: 10,
+    pellet: 15,
     powerPellet: 50,
     step: -0.5,
-    death: -500,
-    ghostEaten: 200,
-    levelClear: 1000
+    death: -800,
+    ghostEaten: 500,
+    levelClear: 1300
+  };
+
+  // Penalización por estancamiento (demasiados pasos sin comer pellet)
+  const STALL = {
+    STEP_THRESHOLD: 40,
+    PENALTY: -200
   };
 
   window.gameConstants = {
@@ -101,6 +107,7 @@
     ACTIONS,
     DIR_VECTORS,
     DEFAULTS,
-    REWARDS
+    REWARDS,
+    STALL
   };
 })();
