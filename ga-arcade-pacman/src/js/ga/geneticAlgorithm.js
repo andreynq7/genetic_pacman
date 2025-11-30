@@ -1,8 +1,8 @@
-﻿/**
+/**
  * geneticAlgorithm.js
  * -------------------
- * Implementación de un Algoritmo Genético para optimizar cromosomas de la política.
- * Separa: población, evaluación, selección, cruce, mutación y reemplazo con elitismo.
+ * Implementaci�n de un Algoritmo Gen�tico para optimizar cromosomas de la pol�tica.
+ * Separa: poblaci�n, evaluaci�n, selecci�n, cruce, mutaci�n y reemplazo con elitismo.
  * Usa un RNG con semilla para reproducibilidad en el navegador.
  */
 (function() {
@@ -10,7 +10,7 @@
   const FITNESS = window.fitnessEvaluator;
 
   if (!POLICY || !FITNESS) {
-    console.warn('geneticAlgorithm: módulos policyEncoding/fitnessEvaluator no disponibles');
+    console.warn('geneticAlgorithm: m�dulos policyEncoding/fitnessEvaluator no disponibles');
     return;
   }
 
@@ -38,25 +38,26 @@
   const baseDefaults = window.defaultConfig || {};
 
   /**
-   * Configuración por defecto del GA (puede ser sobreescrita).
+   * Configuraci�n por defecto del GA (puede ser sobreescrita).
    * selectionRate, crossoverRate, mutationRate se interpretan como % de individuos nuevos generados por cada operador.
    */
   const defaultGAConfig = {
     populationSize: baseDefaults.populationSize || 30,
-    generations: baseDefaults.generations || 20,
+    generations: baseDefaults.generations || 50,
     selectionRate: baseDefaults.selectionRate || 40,
     crossoverRate: baseDefaults.crossoverRate || 45,
     mutationRate: baseDefaults.mutationRate || 15,
     tournamentSize: baseDefaults.tournamentSize || 3,
     elitismCount: 2,
-    mutationStrength: 0.5,      // magnitud del ruido agregado en mutación
-    mutationGeneRate: 0.1,      // probabilidad por gen de mutar
+    mutationStrength: 2,      // magnitud del ruido agregado en mutaci�n
+    mutationGeneRate: 0.5,      // probabilidad por gen de mutar
     randomSeed: baseDefaults.randomSeed || 1234,
+    mutationSchedule: { start: 3, end: 0.75 }, // factor multiplicativo dinamico
     fitnessConfig: FITNESS.defaultFitnessConfig
   };
 
   /**
-   * Crea una configuración normalizada del GA.
+   * Crea una configuraci�n normalizada del GA.
    * @param {Object} cfg
    */
   function createGAConfig(cfg = {}) {
@@ -70,6 +71,7 @@
       elitismCount: cfg.elitismCount ?? defaultGAConfig.elitismCount,
       mutationStrength: cfg.mutationStrength ?? defaultGAConfig.mutationStrength,
       mutationGeneRate: cfg.mutationGeneRate ?? defaultGAConfig.mutationGeneRate,
+      mutationSchedule: cfg.mutationSchedule ?? defaultGAConfig.mutationSchedule,
       randomSeed: cfg.randomSeed ?? defaultGAConfig.randomSeed,
       fitnessConfig: FITNESS.createFitnessConfig(cfg.fitnessConfig || defaultGAConfig.fitnessConfig)
     };
@@ -78,8 +80,8 @@
   /**
    * Estructura del estado del GA.
    * population: array de individuos { id, chromosome, fitness, evalStats }.
-   * generation: índice de generación actual.
-   * history: métricas por generación.
+   * generation: �ndice de generaci�n actual.
+   * history: m�tricas por generaci�n.
    */
   function createGAState(configOverrides = {}) {
     const config = createGAConfig(configOverrides);
@@ -99,7 +101,7 @@
   }
 
   /**
-   * Crea población inicial con cromosomas aleatorios.
+   * Crea poblaci�n inicial con cromosomas aleatorios.
    * @param {Object} config
    * @param {SeededRng} rng
    */
@@ -117,7 +119,7 @@
   }
 
   /**
-   * Evalúa la población completa; solo evalúa individuos sin fitness.
+   * Eval�a la poblaci�n completa; solo eval�a individuos sin fitness.
    * @param {Object} gaState
    */
   function evaluatePopulation(gaState) {
@@ -143,7 +145,7 @@
   }
 
   /**
-   * Ejecuta una generación: evalúa, registra métricas y crea la siguiente población.
+   * Ejecuta una generaci�n: eval�a, registra m�tricas y crea la siguiente poblaci�n.
    * @param {Object} gaState
    * @returns {{best:Object, avg:number}}
    */
@@ -159,7 +161,7 @@
   }
 
   /**
-   * Ejecuta N generaciones seguidas. Callback opcional por generación.
+   * Ejecuta N generaciones seguidas. Callback opcional por generaci�n.
    * @param {Object} gaState
    * @param {number} generations
    * @param {(info:{generation:number,best:Object,avg:number})=>void} [onGeneration]
@@ -174,7 +176,7 @@
   }
 
   /**
-   * Construye la siguiente población aplicando elitismo + selección/cruce/mutación.
+   * Construye la siguiente poblaci�n aplicando elitismo + selecci�n/cruce/mutaci�n.
    * @param {Object} gaState
    */
   function buildNextPopulation(gaState) {
@@ -196,11 +198,13 @@
     const crossCount = Math.max(0, Math.round(remainingSlots * (cfg.crossoverRate / 100)));
     const mutCount = Math.max(0, remainingSlots - selCount - crossCount);
 
-    // Selección (clones directos)
+    // Selecci�n (clones directos)
     for (let i = 0; i < selCount && next.length < cfg.populationSize; i += 1) {
       const parent = tournamentSelect(current, cfg.tournamentSize, rng);
       next.push({ id: `g${gaState.generation + 1}-sel-${i}`, chromosome: POLICY.cloneChromosome(parent.chromosome), fitness: null, evalStats: null });
     }
+
+    const mutationTuning = getMutationTuning(gaState);
 
     // Cruces
     let crossIdx = 0;
@@ -208,9 +212,9 @@
       const p1 = tournamentSelect(current, cfg.tournamentSize, rng);
       const p2 = tournamentSelect(current, cfg.tournamentSize, rng);
       const [c1, c2] = crossoverSinglePoint(p1.chromosome, p2.chromosome, rng);
-      next.push({ id: `g${gaState.generation + 1}-cross-${crossIdx}`, chromosome: mutateChromosome(c1, cfg, rng), fitness: null, evalStats: null });
+      next.push({ id: `g${gaState.generation + 1}-cross-${crossIdx}`, chromosome: mutateChromosome(c1, cfg, rng, mutationTuning), fitness: null, evalStats: null });
       if (next.length < cfg.populationSize) {
-        next.push({ id: `g${gaState.generation + 1}-cross-${crossIdx}-b`, chromosome: mutateChromosome(c2, cfg, rng), fitness: null, evalStats: null });
+        next.push({ id: `g${gaState.generation + 1}-cross-${crossIdx}-b`, chromosome: mutateChromosome(c2, cfg, rng, mutationTuning), fitness: null, evalStats: null });
       }
       crossIdx += 1;
     }
@@ -219,7 +223,7 @@
     let mutIdx = 0;
     while (next.length < cfg.populationSize && mutIdx < mutCount) {
       const parent = tournamentSelect(current, cfg.tournamentSize, rng);
-      const child = mutateChromosome(POLICY.cloneChromosome(parent.chromosome), cfg, rng);
+      const child = mutateChromosome(POLICY.cloneChromosome(parent.chromosome), cfg, rng, mutationTuning);
       next.push({ id: `g${gaState.generation + 1}-mut-${mutIdx}`, chromosome: child, fitness: null, evalStats: null });
       mutIdx += 1;
     }
@@ -229,9 +233,9 @@
       const p1 = tournamentSelect(current, cfg.tournamentSize, rng);
       const p2 = tournamentSelect(current, cfg.tournamentSize, rng);
       const [c1, c2] = crossoverSinglePoint(p1.chromosome, p2.chromosome, rng);
-      next.push({ id: `g${gaState.generation + 1}-fill-${next.length}`, chromosome: mutateChromosome(c1, cfg, rng), fitness: null, evalStats: null });
+      next.push({ id: `g${gaState.generation + 1}-fill-${next.length}`, chromosome: mutateChromosome(c1, cfg, rng, mutationTuning), fitness: null, evalStats: null });
       if (next.length < cfg.populationSize) {
-        next.push({ id: `g${gaState.generation + 1}-fill-${next.length}`, chromosome: mutateChromosome(c2, cfg, rng), fitness: null, evalStats: null });
+        next.push({ id: `g${gaState.generation + 1}-fill-${next.length}`, chromosome: mutateChromosome(c2, cfg, rng, mutationTuning), fitness: null, evalStats: null });
       }
     }
 
@@ -239,9 +243,9 @@
   }
 
   /**
-   * Selección por torneo: elige k individuos al azar y devuelve el mejor.
+   * Selecci�n por torneo: elige k individuos al azar y devuelve el mejor.
    * @param {Array} population Evaluada.
-   * @param {number} k Tamaño de torneo.
+   * @param {number} k Tama�o de torneo.
    * @param {SeededRng} rng
    */
   function tournamentSelect(population, k, rng) {
@@ -271,16 +275,18 @@
   }
 
   /**
-   * Mutación por gen con probabilidad mutationGeneRate; añade ruido uniformemente distribuido.
+   * Mutaci�n por gen con probabilidad mutationGeneRate; a�ade ruido uniformemente distribuido.
    * @param {number[]} chromosome
    * @param {Object} cfg
    * @param {SeededRng} rng
    */
-  function mutateChromosome(chromosome, cfg, rng) {
+  function mutateChromosome(chromosome, cfg, rng, tuning) {
     const genes = POLICY.cloneChromosome(chromosome);
+    const geneRate = tuning?.geneRate ?? cfg.mutationGeneRate;
+    const strength = tuning?.strength ?? cfg.mutationStrength;
     for (let i = 0; i < genes.length; i += 1) {
-      if (rng.random() < cfg.mutationGeneRate) {
-        const noise = rng.range(-cfg.mutationStrength, cfg.mutationStrength);
+      if (rng.random() < geneRate) {
+        const noise = rng.range(-strength, strength);
         genes[i] = clamp(genes[i] + noise, POLICY.GENE_RANGE.min, POLICY.GENE_RANGE.max);
       }
     }
@@ -301,7 +307,18 @@
 
   function seedFitnessConfig(baseCfg, generation, individualIndex) {
     const seedOffset = generation * 100000 + individualIndex * 9973;
-    return { ...baseCfg, baseSeed: (baseCfg.baseSeed + seedOffset) >>> 0 };
+    return { ...baseCfg, baseSeed: (baseCfg.baseSeed + seedOffset) >>> 0, generationOffset: generation };
+  }
+
+  function getMutationTuning(gaState) {
+    const cfg = gaState.config;
+    const sched = cfg.mutationSchedule || { start: 1, end: 1 };
+    const progress = Math.min(1, gaState.generation / Math.max(1, cfg.generations || 1));
+    const factor = sched.start + (sched.end - sched.start) * progress;
+    return {
+      geneRate: cfg.mutationGeneRate * factor,
+      strength: cfg.mutationStrength * factor
+    };
   }
 
   function getBestIndividual(gaState) {

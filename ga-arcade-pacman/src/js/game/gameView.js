@@ -64,6 +64,9 @@
     ghost: '#00bcd4'
   };
 
+  // Sprites
+  const pacmanSprites = loadPacmanSprites();
+
   let cachedCtx = null;
 
   function initGameView(canvasOrRef) {
@@ -165,13 +168,19 @@
     if (!state) return;
     const pac = state.pacman;
     if (pac) {
-      const { x, y } = gridCenter(pac.col, pac.row);
-      ctx.fillStyle = '#ffc107';
-      ctx.beginPath();
-      ctx.arc(x, y, TILE_SIZE * 0.45, 0.25 * Math.PI, 1.75 * Math.PI);
-      ctx.lineTo(x, y);
-      ctx.closePath();
-      ctx.fill();
+      const sprite = getPacmanSprite(pac, state?.steps || 0);
+      const { x, y } = gridToPixel(pac.col, pac.row);
+      if (sprite && sprite.complete) {
+        ctx.drawImage(sprite, x, y, TILE_SIZE, TILE_SIZE);
+      } else {
+        const center = gridCenter(pac.col, pac.row);
+        ctx.fillStyle = '#ffc107';
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, TILE_SIZE * 0.45, 0.25 * Math.PI, 1.75 * Math.PI);
+        ctx.lineTo(center.x, center.y);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
     if (state.ghosts && state.ghosts.length) {
       state.ghosts.forEach((ghost, idx) => {
@@ -275,4 +284,34 @@
       TILE_TYPES
     }
   };
+
+  // --------------- Sprites helpers ---------------
+  function loadImage(src) {
+    const img = new Image();
+    img.src = src;
+    return img;
+  }
+
+  function loadPacmanSprites() {
+    return {
+      RIGHT: loadImage('./assets/sprites/pacman_right.png'),
+      LEFT: loadImage('./assets/sprites/pacman_left.png'),
+      UP: loadImage('./assets/sprites/pacman_up.png'),
+      DOWN: loadImage('./assets/sprites/pacman_down.png'),
+      CLOSED: loadImage('./assets/sprites/pacman_closed.png')
+    };
+  }
+
+  function getPacmanSprite(pac, stepCount) {
+    const dir = pac?.dir || 'RIGHT';
+    const phase = (stepCount % 12) < 6 ? 'OPEN' : 'CLOSED';
+    if (phase === 'CLOSED') return pacmanSprites.CLOSED;
+    switch (dir) {
+      case 'LEFT': return pacmanSprites.LEFT;
+      case 'UP': return pacmanSprites.UP;
+      case 'DOWN': return pacmanSprites.DOWN;
+      case 'RIGHT':
+      default: return pacmanSprites.RIGHT;
+    }
+  }
 })();

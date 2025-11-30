@@ -26,7 +26,7 @@
     next.steps += 1;
     next.stepsSinceLastPellet += 1;
 
-    const effectiveAction = chooseActionWithPower(next, action);
+    const effectiveAction = chooseActionWithOverrides(next, action);
 
     applyPacmanMove(next, effectiveAction);
     reward += handleConsumables(next);
@@ -43,6 +43,9 @@
 
     const prevStatus = next.status;
     const done = computeDone(next);
+    if (next.status === 'life_lost' && next.lives > 0) {
+      resetAfterLifeLost(next);
+    }
     if (next.status === 'level_cleared' && prevStatus !== 'level_cleared') {
       reward += C.REWARDS.levelClear;
     }
@@ -56,26 +59,37 @@
    * @param {Object} state
    * @param {string} proposedAction
    */
-  function chooseActionWithPower(state, proposedAction) {
-    if (state.powerTimer <= 0) return proposedAction;
-    const frightenedGhost = getNearestFrightenedGhost(state);
-    if (!frightenedGhost) return proposedAction;
+  function chooseActionWithOverrides(state, proposedAction) {
+    const ghostOverride = chooseActionChasingGhost(state);
+    if (ghostOverride) return ghostOverride;
+    return proposedAction;
+  }
 
-    const minProgress = C.BALANCE?.powerChaseMinProgress ?? 0;
-    const maxPath = C.BALANCE?.powerChaseMaxPath ?? Infinity;
+  // Decide si perseguir un fantasma vulnerable evaluando costo/beneficio y seguridad.
+  function chooseActionChasingGhost(state) {
+    if (state.powerTimer <= 0) return null;
+    const frightenedGhost = getNearestFrightenedGhost(state);
+    if (!frightenedGhost) return null;
+
     const initialPellets = state.initialPellets || state.pelletsRemaining || 1;
-    const progress = 1 - (state.pelletsRemaining / initialPellets);
+    const pelletsFrac = (state.pelletsRemaining / initialPellets);
+    const pelletsThreshold = C.BALANCE?.ghostChaseMinPellets ?? 0.15;
+    if (pelletsFrac < pelletsThreshold) return null;
 
     const path = findPathAStar(state, { col: state.pacman.col, row: state.pacman.row }, { col: frightenedGhost.col, row: frightenedGhost.row });
     const pathLen = path ? path.length - 1 : Infinity;
-    const shouldChase = progress >= minProgress && pathLen <= maxPath;
+    if (!path || pathLen <= 0) return null;
+    if (pathLen >= state.powerTimer) return null;
 
-    if (shouldChase && path && path.length > 1) {
-      const nextStep = path[1];
-      const actionFromPath = directionFromStep(state.pacman, nextStep);
-      if (actionFromPath) return actionFromPath;
-    }
-    return proposedAction;
+    const stepCost = Math.abs((C.REWARDS.step || 0) + (C.REWARDS.emptyStep || 0));
+    const valueGhost = C.REWARDS.ghostEaten - pathLen * stepCost;
+    if (valueGhost <= 0) return null;
+
+    const threatRadius = C.BALANCE?.ghostChaseDangerRadius ?? 3;
+    if (!isPathSafeFromLethalGhosts(state, path, threatRadius)) return null;
+
+    const nextStep = path[1];
+    return directionFromStep(state.pacman, nextStep);
   }
 
   /**
@@ -115,8 +129,30 @@
       reward += C.REWARDS.powerPellet;
       state.stepsSinceLastPellet = 0;
       setGhostsFrightened(state);
+      checkPelletMilestone(state, (extra) => { reward += extra; });
+    } else if (tile === T.PATH) {
+      // Penaliza avanzar a casillas vac�as para priorizar limpiar el mapa.
+      state.score += C.REWARDS.emptyStep;
+      reward += C.REWARDS.emptyStep;
+    }
+    if (tile === T.PELLET || tile === T.POWER) {
+      checkPelletMilestone(state, (extra) => { reward += extra; });
     }
     return reward;
+  }
+
+  function checkPelletMilestone(state, onReward) {
+    const thresholdFrac = C.BALANCE?.pelletMilestoneThreshold ?? 0;
+    const bonus = C.BALANCE?.pelletMilestoneReward ?? 0;
+    if (!thresholdFrac || bonus === 0) return;
+    if (state.pelletMilestoneAwarded) return;
+    const threshold = Math.ceil(state.initialPellets * thresholdFrac);
+    if (threshold <= 0) return;
+    if (state.pelletsRemaining <= threshold) {
+      state.pelletMilestoneAwarded = true;
+      state.score += bonus;
+      if (onReward) onReward(bonus);
+    }
   }
 
   /**
@@ -159,6 +195,7 @@
           state.lives -= 1;
           state.status = state.lives > 0 ? 'life_lost' : 'game_over';
           reward += C.REWARDS.death;
+          state.score += C.REWARDS.death;
           break;
         }
       }
@@ -248,7 +285,7 @@
       state.status = 'level_cleared';
       return true;
     }
-    if (state.status === 'game_over' || state.status === 'life_lost') {
+    if (state.status === 'game_over') {
       return true;
     }
     if (state.steps >= state.stepLimit) {
@@ -446,6 +483,26 @@
     return null;
   }
 
+  function resetAfterLifeLost(state) {
+    state.status = 'running';
+    state.powerTimer = 0;
+    state.stepsSinceLastPellet = 0;
+    // Respawn Pac-Man en el spawn por defecto.
+    const spawn = C.DEFAULTS.pacmanSpawn;
+    state.pacman.col = spawn.col;
+    state.pacman.row = spawn.row;
+    state.pacman.dir = C.ACTIONS.LEFT;
+    // Respawn fantasmas y limpiar estados de power.
+    state.ghosts.forEach((g, idx) => {
+      const spawnG = C.DEFAULTS.ghostSpawns[idx] || C.DEFAULTS.ghostSpawns[0];
+      g.col = spawnG.col;
+      g.row = spawnG.row;
+      g.dir = C.ACTIONS.LEFT;
+      g.frightenedTimer = 0;
+      g.eatenThisPower = false;
+    });
+  }
+
   function powerDurationForLevel(level) {
     const base = C.DEFAULTS.powerDurationSteps;
     const decay = C.DIFFICULTY?.powerDurationDecay ?? 1;
@@ -454,6 +511,27 @@
     const duration = Math.round(base * Math.pow(decay, lvl - 1));
     return Math.max(min, duration);
   }
+
+  function isGhostLethal(state, ghost) {
+    return (state.powerTimer <= 0) || (ghost.frightenedTimer <= 0);
+  }
+
+  function isPathSafeFromLethalGhosts(state, path, radius) {
+    if (!Array.isArray(path) || path.length === 0) return false;
+    const r = Math.max(0, radius || 0);
+    for (let i = 0; i < path.length; i += 1) {
+      const step = path[i];
+      for (let g = 0; g < state.ghosts.length; g += 1) {
+        const ghost = state.ghosts[g];
+        if (isGhostLethal(state, ghost)) {
+          const d = manhattan(step.col, step.row, ghost.col, ghost.row);
+          if (d <= r) return false;
+        }
+      }
+    }
+    return true;
+  }
+
 
   window.gameLogic = {
     stepGame,

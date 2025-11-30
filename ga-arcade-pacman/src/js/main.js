@@ -252,12 +252,13 @@
         showGameOverModal();
       } else if (reason === 'life_lost' && result.state.lives > 0) {
         // Reinicia el nivel conservando vidas restantes.
-        currentState = gameState.createInitialState({ lives: result.state.lives, level: result.state.level });
+        currentState = gameState.createInitialState({ lives: result.state.lives, level: result.state.level, score: result.state.score });
         render();
       } else {
         // Reinicio por limpieza de nivel u otra razón.
-        const nextLevel = reason === 'level_cleared' ? (result.state.level || 1) + 1 : (result.state.level || 1);
-        currentState = gameState.createInitialState({ lives: result.state.lives, level: nextLevel });
+        const nextLevel = reason === 'level_cleared' ? (result.state.level || 1) + 1 : (result.state.level || 1);
+        // Mantiene el puntaje acumulado; los castigos/bonos ya se aplican al finalizar.
+        currentState = gameState.createInitialState({ lives: result.state.lives, level: nextLevel, score: result.state.score });
         render();
       }
     }

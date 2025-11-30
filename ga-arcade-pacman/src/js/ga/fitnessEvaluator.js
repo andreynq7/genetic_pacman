@@ -25,11 +25,19 @@
    * - episodeSeeds: lista opcional de semillas por episodio; si existe se usa en lugar de derivar desde baseSeed.
    */
   const defaultFitnessConfig = {
-    episodesPerIndividual: 3,
+    episodesPerIndividual: 8,
     maxStepsPerEpisode: CONST.DEFAULTS.stepLimit,
     gamma: 1,
     baseSeed: 12345,
-    episodeSeeds: null
+    episodeSeeds: null,
+    baseLevel: 1,
+    curriculumGrowth: 0,
+    maxCurriculumLevel: 1,
+    completionBonus: 1200,
+    generationOffset: 0,
+    robustMode: false,
+    robustLevels: [1, 2],
+    disableCompletionBonus: false
   };
 
   /**
@@ -43,7 +51,15 @@
       maxStepsPerEpisode: cfg.maxStepsPerEpisode ?? defaultFitnessConfig.maxStepsPerEpisode,
       gamma: cfg.gamma ?? defaultFitnessConfig.gamma,
       baseSeed: cfg.baseSeed ?? defaultFitnessConfig.baseSeed,
-      episodeSeeds: Array.isArray(cfg.episodeSeeds) ? cfg.episodeSeeds : null
+      episodeSeeds: Array.isArray(cfg.episodeSeeds) ? cfg.episodeSeeds : null,
+      baseLevel: cfg.baseLevel ?? defaultFitnessConfig.baseLevel,
+      curriculumGrowth: cfg.curriculumGrowth ?? defaultFitnessConfig.curriculumGrowth,
+      maxCurriculumLevel: cfg.maxCurriculumLevel ?? defaultFitnessConfig.maxCurriculumLevel,
+      completionBonus: cfg.completionBonus ?? defaultFitnessConfig.completionBonus,
+      generationOffset: cfg.generationOffset ?? defaultFitnessConfig.generationOffset,
+      robustMode: cfg.robustMode ?? defaultFitnessConfig.robustMode,
+      robustLevels: Array.isArray(cfg.robustLevels) ? cfg.robustLevels : defaultFitnessConfig.robustLevels,
+      disableCompletionBonus: cfg.disableCompletionBonus ?? defaultFitnessConfig.disableCompletionBonus
     };
   }
 
@@ -54,9 +70,11 @@
    * @param {number} seed Semilla usada para Math.random durante el episodio.
    * @returns {{reward:number, steps:number, finalState:Object, status:string}}
    */
-  function evaluateEpisode(chromosome, fitnessConfig, seed) {
+  function evaluateEpisode(chromosome, fitnessConfig, seed, overrideLevel) {
     const policyFn = POLICY.policyFromChromosome(chromosome, { tieBreak: 'first' });
-    const initialState = STATE.createInitialState({ stepLimit: fitnessConfig.maxStepsPerEpisode });
+    const levelFromCurriculum = computeCurriculumLevel(fitnessConfig);
+    const level = overrideLevel != null ? overrideLevel : levelFromCurriculum;
+    const initialState = STATE.createInitialState({ stepLimit: fitnessConfig.maxStepsPerEpisode, level });
 
     // Se fuerza reproducibilidad envolviendo Math.random con una LCG simple.
     const result = runWithSeed(seed, () => SIM.runEpisode(policyFn, {
@@ -65,7 +83,10 @@
     }));
 
     const finalState = result.finalState;
-    const totalReward = result.totalReward;
+    let totalReward = result.totalReward;
+    if (!fitnessConfig.disableCompletionBonus && finalState.status === 'level_cleared') {
+      totalReward += fitnessConfig.completionBonus || 0;
+    }
     return {
       reward: totalReward,
       steps: result.steps,
@@ -86,11 +107,21 @@
     const rewards = [];
     const episodes = [];
 
-    for (let i = 0; i < cfg.episodesPerIndividual; i += 1) {
-      const seed = getEpisodeSeed(cfg, i);
-      const ep = evaluateEpisode(chromosome, cfg, seed);
+    const evalOnce = (seed, levelOverride) => {
+      const ep = evaluateEpisode(chromosome, cfg, seed, levelOverride);
       rewards.push(ep.reward);
       episodes.push(ep);
+    };
+
+    for (let i = 0; i < cfg.episodesPerIndividual; i += 1) {
+      const seed = getEpisodeSeed(cfg, i);
+      evalOnce(seed, null);
+      if (cfg.robustMode && Array.isArray(cfg.robustLevels)) {
+        cfg.robustLevels.forEach((lvl, idx) => {
+          const robustSeed = (seed + (idx + 1) * 10007) >>> 0;
+          evalOnce(robustSeed, lvl);
+        });
+      }
     }
 
     const fitness = mean(rewards);
@@ -142,6 +173,24 @@
     } finally {
       Math.random = originalRandom;
     }
+  }
+
+  function computeCurriculumLevel(cfg) {
+    const growth = cfg.curriculumGrowth ?? 0;
+    const base = cfg.baseLevel ?? 1;
+    const max = cfg.maxCurriculumLevel ?? base;
+    const gen = cfg.generationOffset ?? 0;
+    const lvl = base + Math.floor(gen * growth);
+    return Math.min(max, Math.max(1, lvl));
+  }
+
+  function computeCurriculumLevel(cfg) {
+    const growth = cfg.curriculumGrowth ?? 0;
+    const base = cfg.baseLevel ?? 1;
+    const max = cfg.maxCurriculumLevel ?? base;
+    const gen = cfg.generationOffset ?? 0;
+    const lvl = base + Math.floor(gen * growth);
+    return Math.min(max, Math.max(1, lvl));
   }
 
   window.fitnessEvaluator = {

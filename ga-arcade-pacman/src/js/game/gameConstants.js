@@ -1,6 +1,6 @@
-﻿/**
+/**
  * Constantes base para el motor tile-based de Pac-Man.
- * No depende del render; comparte el mismo mapa que gameView si está presente.
+ * No depende del render; comparte el mismo mapa que gameView si est� presente.
  */
 (function() {
   const viewConst = window.gameView?.constants || {};
@@ -84,15 +84,16 @@
   };
 
   const REWARDS = {
-    pellet: 25,
-    powerPellet: 80,
+    pellet: 100,
+    powerPellet: 200,
     step: -0.5,
-    death: -2000,
+    emptyStep: -10,
+    death: -5000,
     ghostEaten: 400,
-    levelClear: 1500
+    levelClear: 10000
   };
 
-  // Penalización por estancamiento (demasiados pasos sin comer pellet)
+  // Penalizaci�n por estancamiento (demasiados pasos sin comer pellet)
   const STALL = {
     STEP_THRESHOLD: 40,
     PENALTY: -200
@@ -100,11 +101,18 @@
 
   // Reglas de balance para no sacrificar progreso por perseguir fantasmas.
   const BALANCE = {
-    // Solo perseguir automáticamente fantasmas asustados si ya se avanzó lo suficiente
+    // Solo perseguir autom�ticamente fantasmas asustados si ya se avanz� lo suficiente
     // y la ruta hasta ellos es corta.
-    powerChaseMinProgress: 0.35, // proporción de pellets ya comidos [0,1]
-    powerChaseMaxPath: 10       // pasos máximos que permitimos desviarnos tras un fantasma
+    powerChaseMinProgress: 0.35, // proporci�n de pellets ya comidos [0,1]
+    powerChaseMaxPath: 10,
+    pelletMilestoneThreshold: 0.2,
+    pelletMilestoneReward: 800
   };
+
+  // Ajustes extra de balance din�mico.
+  BALANCE.pelletDangerRadius = 4;      // radio de seguridad para priorizar pellet
+  BALANCE.ghostChaseDangerRadius = 3;  // radio de seguridad al perseguir fantasmas
+  BALANCE.ghostChaseMinPellets = 0.15; // no perseguir fantasmas si queda menos de este porcentaje de pellets
 
   // Escalado de dificultad por nivel.
   const DIFFICULTY = {
