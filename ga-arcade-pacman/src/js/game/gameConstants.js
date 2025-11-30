@@ -87,8 +87,8 @@
     pellet: 15,
     powerPellet: 50,
     step: -0.5,
-    death: -800,
-    ghostEaten: 500,
+    death: -2000,
+    ghostEaten: 800,
     levelClear: 1300
   };
 

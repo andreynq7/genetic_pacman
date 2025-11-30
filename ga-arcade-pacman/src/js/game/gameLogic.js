@@ -140,9 +140,11 @@
     for (let i = 0; i < state.ghosts.length; i += 1) {
       const ghost = state.ghosts[i];
       if (ghost.col === pacCol && ghost.row === pacRow) {
-        if (frightened || ghost.frightenedTimer > 0) {
+        const ghostEdible = (frightened || ghost.frightenedTimer > 0) && !ghost.eatenThisPower;
+        if (ghostEdible) {
           reward += C.REWARDS.ghostEaten;
           state.score += C.REWARDS.ghostEaten;
+          ghost.eatenThisPower = true;
           respawnGhost(ghost);
         } else {
           state.lives -= 1;
@@ -203,6 +205,7 @@
     state.powerTimer = C.DEFAULTS.powerDurationSteps;
     state.ghosts.forEach((ghost) => {
       ghost.frightenedTimer = C.DEFAULTS.powerDurationSteps;
+      ghost.eatenThisPower = false;
     });
   }
 
@@ -213,6 +216,13 @@
   function updatePowerTimer(state) {
     if (state.powerTimer > 0) {
       state.powerTimer -= 1;
+      if (state.powerTimer <= 0) {
+        // Al expirar, los fantasmas recuperan letalidad total en siguiente power.
+        state.ghosts.forEach((ghost) => {
+          ghost.eatenThisPower = false;
+          ghost.frightenedTimer = 0;
+        });
+      }
     }
   }
 
@@ -247,6 +257,7 @@
     ghost.col = spawn.col;
     ghost.row = spawn.row;
     ghost.frightenedTimer = 0;
+    // Mantiene eatenThisPower en true para seguir siendo letal durante el power restante.
     ghost.dir = C.ACTIONS.LEFT;
   }
 

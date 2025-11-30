@@ -116,7 +116,8 @@
         col: pos.col,
         row: pos.row,
         dir: C.ACTIONS.LEFT,
-        frightenedTimer: 0
+        frightenedTimer: 0,
+        eatenThisPower: false
       }))
     };
   }
