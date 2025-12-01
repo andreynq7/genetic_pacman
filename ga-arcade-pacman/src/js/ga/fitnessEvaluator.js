@@ -28,7 +28,7 @@
    */
   const defaultFitnessConfig = {
     episodesPerIndividual: 5,
-    maxStepsPerEpisode: 1200,
+    maxStepsPerEpisode: 10000,
     gamma: 1,
     baseSeed: 12345,
     episodeSeeds: null,

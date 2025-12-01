@@ -91,6 +91,7 @@
     const pacSpawn = findPacmanSpawn(matrix, options.pacmanSpawn || C.DEFAULTS.pacmanSpawn);
     const ghostSpawns = findGhostSpawns(matrix, options.ghostSpawns || C.DEFAULTS.ghostSpawns);
     const level = options.level ?? 1;
+    const palette = ['red', 'pink', 'blue', 'orange'];
 
     // Limpia las marcas de spawn en el mapa para que cuenten como camino.
     if (matrix[pacSpawn.row][pacSpawn.col] === T.PACMAN_SPAWN || matrix[pacSpawn.row][pacSpawn.col] === T.PELLET) {
@@ -125,6 +126,11 @@
       levelSnapshot: null,
       stallCount: 0,
       lifeLostThisStep: false,
+      ghostModeIndex: 0,
+      ghostMode: (C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || C.GHOST_MODES?.SCATTER || 'SCATTER',
+      ghostModeTimer: (C.SCATTER_CHASE_SCHEDULE?.[0]?.durationSteps) || 0,
+      pacmanSpawn: { ...pacSpawn },
+      ghostSpawnPoints: ghostSpawns.map((p) => ({ ...p })),
       pacman: {
         col: pacSpawn.col,
         row: pacSpawn.row,
@@ -135,6 +141,8 @@
       },
       ghosts: ghostSpawns.map((pos, idx) => ({
         id: `ghost-${idx + 1}`,
+        color: palette[idx % palette.length],
+        originalColor: palette[idx % palette.length],
         col: pos.col,
         row: pos.row,
         prevCol: pos.col,
@@ -144,7 +152,11 @@
         eatenThisPower: false,
         returningToHome: false,
         homeCol: pos.col,
-        homeRow: pos.row
+        homeRow: pos.row,
+        mode: (C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || C.GHOST_MODES?.SCATTER || 'SCATTER',
+        speed: 1,
+        cornerCol: (C.GHOST_CORNERS?.[palette[idx % palette.length]]?.col) ?? pos.col,
+        cornerRow: (C.GHOST_CORNERS?.[palette[idx % palette.length]]?.row) ?? pos.row
       }))
     };
 
@@ -178,6 +190,9 @@
       aStarCacheHits: state.aStarCacheHits || 0,
       lifeLossCount: state.lifeLossCount || 0,
       scoreInicialNivel: state.scoreInicialNivel ?? null,
+      ghostModeIndex: state.ghostModeIndex ?? 0,
+      ghostMode: state.ghostMode ?? (C.GHOST_MODES?.SCATTER || 'SCATTER'),
+      ghostModeTimer: state.ghostModeTimer ?? 0,
       levelSnapshot: state.levelSnapshot ? {
         map: cloneMatrix(state.levelSnapshot.map),
         pacman: { ...state.levelSnapshot.pacman },
@@ -187,10 +202,16 @@
         pelletMilestoneAwarded: state.levelSnapshot.pelletMilestoneAwarded,
         lastAction: state.levelSnapshot.lastAction,
         powerTimer: state.levelSnapshot.powerTimer ?? 0,
-        stepsSinceLastPellet: state.levelSnapshot.stepsSinceLastPellet ?? 0
+        stepsSinceLastPellet: state.levelSnapshot.stepsSinceLastPellet ?? 0,
+        pacmanSpawn: state.levelSnapshot.pacmanSpawn ? { ...state.levelSnapshot.pacmanSpawn } : null,
+        ghostSpawnPoints: state.levelSnapshot.ghostSpawnPoints
+          ? state.levelSnapshot.ghostSpawnPoints.map((p) => ({ ...p }))
+          : null
       } : null,
       lifeLostThisStep: false,
       pacman: { ...state.pacman },
+      pacmanSpawn: state.pacmanSpawn ? { ...state.pacmanSpawn } : null,
+      ghostSpawnPoints: state.ghostSpawnPoints ? state.ghostSpawnPoints.map((p) => ({ ...p })) : null,
       ghosts: state.ghosts.map((g) => ({ ...g }))
     };
   }
@@ -206,6 +227,8 @@
       lastAction: state.lastAction,
       powerTimer: 0,
       stepsSinceLastPellet: 0,
+      pacmanSpawn: state.pacmanSpawn ? { ...state.pacmanSpawn } : null,
+      ghostSpawnPoints: state.ghostSpawnPoints ? state.ghostSpawnPoints.map((p) => ({ ...p })) : null,
       score: state.score,
       steps: state.steps
     };
@@ -227,6 +250,12 @@
     state.lastAction = snap.lastAction;
     state.powerTimer = snap.powerTimer ?? 0;
     state.stepsSinceLastPellet = snap.stepsSinceLastPellet ?? 0;
+    if (snap.pacmanSpawn) {
+      state.pacmanSpawn = { ...snap.pacmanSpawn };
+    }
+    if (snap.ghostSpawnPoints) {
+      state.ghostSpawnPoints = snap.ghostSpawnPoints.map((p) => ({ ...p }));
+    }
     if (snap.steps != null) {
       state.steps = snap.steps;
     }

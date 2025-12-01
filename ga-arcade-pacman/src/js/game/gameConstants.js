@@ -83,6 +83,26 @@
     stepLimit: 50000
   };
 
+  const GHOST_MODES = {
+    CHASE: 'CHASE',
+    SCATTER: 'SCATTER',
+    FRIGHTENED: 'FRIGHTENED'
+  };
+
+  const SCATTER_CHASE_SCHEDULE = [
+    { mode: 'SCATTER', durationSteps: 70 },
+    { mode: 'CHASE', durationSteps: 200 },
+    { mode: 'SCATTER', durationSteps: 70 },
+    { mode: 'CHASE', durationSteps: 200 }
+  ];
+
+  const GHOST_CORNERS = {
+    red: { col: 26, row: 1 },
+    pink: { col: 1, row: 1 },
+    blue: { col: 26, row: 29 },
+    orange: { col: 1, row: 29 }
+  };
+
   const REWARDS = {
     pellet: 10,
     powerPellet: 50,
@@ -141,6 +161,9 @@
     REWARDS,
     STALL,
     BALANCE,
-    DIFFICULTY
+    DIFFICULTY,
+    GHOST_MODES,
+    SCATTER_CHASE_SCHEDULE,
+    GHOST_CORNERS
   };
 })();

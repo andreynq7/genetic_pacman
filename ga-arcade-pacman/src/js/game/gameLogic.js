@@ -46,6 +46,7 @@
     reward += handleConsumables(next, events);
     const stallSteps = next.stepsSinceLastPellet;
     reward += applyStallPenalty(next);
+    updateGhostModes(next);
     const hardStop = C.STALL?.HARD_STOP_THRESHOLD;
     if (hardStop && stallSteps >= hardStop) {
       next.status = 'stalled';
@@ -315,6 +316,7 @@
 
       if (ghost.returningToHome) {
         returningCount += 1;
+        const home = getGhostHome(ghost);
         const nextStep = nextStepToHome(state, ghost);
         if (nextStep) {
           ghost.prevCol = ghost.col;
@@ -322,8 +324,14 @@
           ghost.col = nextStep.col;
           ghost.row = nextStep.row;
           ghost.dir = directionFromStep({ col: ghost.prevCol, row: ghost.prevRow }, nextStep) || ghost.dir;
+        } else if (ghost.col !== home.col || ghost.row !== home.row) {
+          ghost.prevCol = ghost.col;
+          ghost.prevRow = ghost.row;
+          ghost.col = home.col;
+          ghost.row = home.row;
+          ghost.dir = C.ACTIONS.LEFT;
         }
-        if (ghost.col === (ghost.homeCol ?? ghost.col) && ghost.row === (ghost.homeRow ?? ghost.row)) {
+        if (ghost.col === home.col && ghost.row === home.row) {
           ghost.returningToHome = false;
           ghost.frightenedTimer = 0;
           ghost.eatenThisPower = false;
@@ -332,15 +340,43 @@
         return;
       }
 
-      const withoutReverse = options.filter((opt) => opt.action !== oppositeDirection(ghost.dir));
-      const candidates = withoutReverse.length ? withoutReverse : options;
-      const choice = pickGhostMove(state, ghost, candidates);
+      if (!ghostShouldMove(state, ghost)) {
+        if (ghost.frightenedTimer > 0) ghost.frightenedTimer -= 1;
+        return;
+      }
+
+      const forwardVec = C.DIR_VECTORS[ghost.dir] || C.DIR_VECTORS[C.ACTIONS.STAY];
+      const forwardCell = { col: ghost.col + forwardVec.col, row: ghost.row + forwardVec.row };
+      const canForward = isWalkable(state.map, forwardCell.col, forwardCell.row, true);
+      const intersection = isIntersection(state.map, ghost.col, ghost.row, ghost.dir);
+
+      let nextCell = null;
+      if (canForward && !intersection) {
+        nextCell = forwardCell;
+      } else {
+        const target = computeGhostTarget(state, ghost);
+        const path = findGhostPath(state, ghost, target);
+        if (path && path.length >= 2) {
+          const step1 = path[1];
+          if (directionFromStep({ col: ghost.col, row: ghost.row }, step1) !== oppositeDirection(ghost.dir)) {
+            nextCell = step1;
+          }
+        }
+        if (!nextCell) {
+          const withoutReverse = options.filter((opt) => opt.action !== oppositeDirection(ghost.dir));
+          const candidates = withoutReverse.length ? withoutReverse : options;
+          const choice = pickGhostMove(state, ghost, candidates);
+          nextCell = { col: choice.col, row: choice.row };
+          ghost.dir = choice.action;
+        }
+      }
 
       ghost.prevCol = ghost.col;
       ghost.prevRow = ghost.row;
-      ghost.col = choice.col;
-      ghost.row = choice.row;
-      ghost.dir = choice.action;
+      ghost.col = nextCell.col;
+      ghost.row = nextCell.row;
+      const newDir = directionFromStep({ col: ghost.prevCol, row: ghost.prevRow }, nextCell);
+      if (newDir) ghost.dir = newDir;
 
       if (ghost.frightenedTimer > 0) ghost.frightenedTimer -= 1;
     });
@@ -363,6 +399,100 @@
       }
     });
     return moves;
+  }
+
+  function isIntersection(map, col, row, currentDir) {
+    const options = getValidMoves(map, col, row, true);
+    const withoutReverse = options.filter((opt) => opt.action !== oppositeDirection(currentDir));
+    return withoutReverse.length > 1;
+  }
+
+  function ghostShouldMove(state, ghost) {
+    if (ghost.frightenedTimer > 0 || (state.powerTimer > 0 && !ghost.returningToHome)) {
+      return (state.steps % 2) === 0;
+    }
+    return true;
+  }
+
+  function updateGhostModes(state) {
+    if (!Array.isArray(C.SCATTER_CHASE_SCHEDULE) || !C.SCATTER_CHASE_SCHEDULE.length) return;
+    if (state.powerTimer > 0) return;
+    state.ghostModeTimer = (state.ghostModeTimer || 0) - 1;
+    if (state.ghostModeTimer <= 0) {
+      state.ghostModeIndex = ((state.ghostModeIndex || 0) + 1) % C.SCATTER_CHASE_SCHEDULE.length;
+      const entry = C.SCATTER_CHASE_SCHEDULE[state.ghostModeIndex] || C.SCATTER_CHASE_SCHEDULE[0];
+      state.ghostMode = entry.mode || C.GHOST_MODES.SCATTER;
+      state.ghostModeTimer = entry.durationSteps || 0;
+    }
+  }
+
+  function getGhostByColor(state, color) {
+    for (let i = 0; i < state.ghosts.length; i += 1) {
+      const g = state.ghosts[i];
+      if ((g.color === color) || (g.originalColor === color)) return g;
+    }
+    return null;
+  }
+
+  function clampToWalkable(state, col, row) {
+    if (isWalkable(state.map, col, row, true)) return { col, row };
+    const moves = getValidMoves(state.map, col, row, true);
+    if (moves.length) return { col: moves[0].col, row: moves[0].row };
+    return { col, row };
+  }
+
+  function computeGhostTarget(state, ghost) {
+    const pac = state.pacman;
+    const mode = ghost.frightenedTimer > 0 || (state.powerTimer > 0 && !ghost.returningToHome)
+      ? C.GHOST_MODES.FRIGHTENED
+      : (ghost.color === 'orange' && manhattan(ghost.col, ghost.row, pac.col, pac.row) <= 8)
+        ? C.GHOST_MODES.SCATTER
+        : state.ghostMode || C.GHOST_MODES.SCATTER;
+    ghost.mode = mode;
+    if (ghost.returningToHome) {
+      const home = getGhostHome(ghost);
+      return { col: home.col, row: home.row };
+    }
+    if (mode === C.GHOST_MODES.SCATTER || mode === C.GHOST_MODES.FRIGHTENED) {
+      const c = { col: ghost.cornerCol ?? ghost.col, row: ghost.cornerRow ?? ghost.row };
+      return clampToWalkable(state, c.col, c.row);
+    }
+    if ((ghost.color === 'red')) {
+      return { col: pac.col, row: pac.row };
+    }
+    if ((ghost.color === 'pink')) {
+      const vec = C.DIR_VECTORS[pac.dir] || { col: 1, row: 0 };
+      const target = { col: pac.col + vec.col * 4, row: pac.row + vec.row * 4 };
+      return clampToWalkable(state, target.col, target.row);
+    }
+    if ((ghost.color === 'blue')) {
+      const blinky = getGhostByColor(state, 'red');
+      const aheadVec = C.DIR_VECTORS[pac.dir] || { col: 1, row: 0 };
+      const ahead = { col: pac.col + aheadVec.col * 2, row: pac.row + aheadVec.row * 2 };
+      const px = ahead.col * 2 - (blinky?.col ?? ahead.col);
+      const py = ahead.row * 2 - (blinky?.row ?? ahead.row);
+      return clampToWalkable(state, px, py);
+    }
+    if ((ghost.color === 'orange')) {
+      return { col: pac.col, row: pac.row };
+    }
+    return { col: pac.col, row: pac.row };
+  }
+
+  function findGhostPath(state, ghost, target) {
+    if ((ghost.color === 'red')) {
+      return findPathAStar(state, { col: ghost.col, row: ghost.row }, target, { maxExplored: Infinity, maxRadius: Infinity });
+    }
+    if ((ghost.color === 'pink')) {
+      return findPathAStar(state, { col: ghost.col, row: ghost.row }, target, { maxExplored: C.MAP_COLS * C.MAP_ROWS, maxRadius: Infinity });
+    }
+    if ((ghost.color === 'blue')) {
+      return findPathAStar(state, { col: ghost.col, row: ghost.row }, target, { maxExplored: C.MAP_COLS * C.MAP_ROWS * 2, maxRadius: 30 });
+    }
+    if ((ghost.color === 'orange')) {
+      return findPathAStar(state, { col: ghost.col, row: ghost.row }, target, { maxExplored: C.MAP_COLS * C.MAP_ROWS, maxRadius: Infinity });
+    }
+    return findPathAStar(state, { col: ghost.col, row: ghost.row }, target, {});
   }
 
   /**
@@ -627,21 +757,54 @@
       STATE.captureLevelSnapshot(state);
     }
     STATE.restoreLevelSnapshot(state);
-    state.pacman.col = C.DEFAULTS.pacmanSpawn.col;
-    state.pacman.row = C.DEFAULTS.pacmanSpawn.row;
+    const palette = ['red', 'pink', 'blue', 'orange'];
+    const pacSpawn = state.pacmanSpawn || C.DEFAULTS.pacmanSpawn;
+    state.pacman.col = pacSpawn.col;
+    state.pacman.row = pacSpawn.row;
+    state.pacman.prevCol = pacSpawn.col;
+    state.pacman.prevRow = pacSpawn.row;
     state.pacman.dir = C.ACTIONS.LEFT;
-    state.ghosts = C.DEFAULTS.ghostSpawns.map((pos, idx) => ({
-      id: `ghost-${idx + 1}`,
-      col: pos.col,
-      row: pos.row,
-      prevCol: pos.col,
-      prevRow: pos.row,
-      dir: C.ACTIONS.LEFT,
-      frightenedTimer: 0,
-      eatenThisPower: false
-    }));
+    state.pacman.alive = true;
+
+    const ghostTemplates = (state.levelSnapshot?.ghosts && state.levelSnapshot.ghosts.length)
+      ? state.levelSnapshot.ghosts
+      : state.ghosts;
+    const spawnPoints = (state.ghostSpawnPoints && state.ghostSpawnPoints.length)
+      ? state.ghostSpawnPoints
+      : (state.levelSnapshot?.ghostSpawnPoints && state.levelSnapshot.ghostSpawnPoints.length
+        ? state.levelSnapshot.ghostSpawnPoints
+        : C.DEFAULTS.ghostSpawns);
+
+    state.ghosts = ghostTemplates.map((template, idx) => {
+      const spawn = spawnPoints[idx % spawnPoints.length] || spawnPoints[0];
+      const color = template.color || template.originalColor || palette[idx % palette.length];
+      const homeCol = template.homeCol ?? spawn.col;
+      const homeRow = template.homeRow ?? spawn.row;
+      return {
+        id: template.id || `ghost-${idx + 1}`,
+        color,
+        originalColor: template.originalColor || color,
+        col: spawn.col,
+        row: spawn.row,
+        prevCol: spawn.col,
+        prevRow: spawn.row,
+        dir: C.ACTIONS.LEFT,
+        frightenedTimer: 0,
+        eatenThisPower: false,
+        returningToHome: false,
+        homeCol,
+        homeRow,
+        mode: state.ghostMode ?? ((C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || (C.GHOST_MODES?.SCATTER) || 'SCATTER'),
+        speed: 1,
+        cornerCol: (C.GHOST_CORNERS?.[color]?.col) ?? homeCol,
+        cornerRow: (C.GHOST_CORNERS?.[color]?.row) ?? homeRow
+      };
+    });
     state.status = 'running';
     state.powerTimer = 0;
+    state.ghostModeIndex = state.ghostModeIndex ?? 0;
+    state.ghostMode = state.ghostMode ?? ((C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || (C.GHOST_MODES?.SCATTER) || 'SCATTER');
+    state.ghostModeTimer = state.ghostModeTimer ?? (C.SCATTER_CHASE_SCHEDULE?.[0]?.durationSteps || 0);
     state.stepsSinceLastPellet = state.levelSnapshot?.stepsSinceLastPellet ?? 0;
     state.pelletMilestoneAwarded = state.levelSnapshot?.pelletMilestoneAwarded ?? false;
     state.lastAction = state.levelSnapshot?.lastAction ?? state.lastAction;
@@ -677,10 +840,22 @@
     return true;
   }
 
+  function getGhostHome(ghost) {
+    const fallback = C.DEFAULTS?.ghostSpawns?.[0] || { col: ghost.col, row: ghost.row };
+    return {
+      col: ghost.homeCol ?? fallback.col,
+      row: ghost.homeRow ?? fallback.row
+    };
+  }
+
   function nextStepToHome(state, ghost) {
-    const home = { col: ghost.homeCol ?? C.DEFAULTS.ghostSpawns[0].col, row: ghost.homeRow ?? C.DEFAULTS.ghostSpawns[0].row };
+    const home = getGhostHome(ghost);
     if (ghost.col === home.col && ghost.row === home.row) return null;
-    const path = findPathAStar(state, { col: ghost.col, row: ghost.row }, home, { maxExplored: C.BALANCE?.powerPathMaxExplored || 500, maxRadius: C.BALANCE?.powerPathMaxRadius || Infinity });
+    const exploredCap = Number.isFinite(C.MAP_COLS * C.MAP_ROWS) ? C.MAP_COLS * C.MAP_ROWS * 4 : Infinity;
+    const path = findPathAStar(state, { col: ghost.col, row: ghost.row }, home, {
+      maxExplored: exploredCap || Infinity,
+      maxRadius: Infinity
+    });
     if (!path || path.length < 2) return null;
     return path[1];
   }

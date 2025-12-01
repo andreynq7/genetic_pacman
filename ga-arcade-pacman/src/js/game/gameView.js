@@ -40,7 +40,7 @@
     'W............WW............W',
     'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
     'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
-    'W......WW....WW....WW......W',
+    'W.....o......WW......o.....W',
     'WoWWWWWWWWWW.WW.WWWWWWWWWWoW',
     'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
     'W..............P...........W',
@@ -66,6 +66,8 @@
 
   // Sprites
   const pacmanSprites = loadPacmanSprites();
+  const ghostSprites = loadGhostSprites();
+  const defaultGhostSprite = getDefaultGhostSprite(ghostSprites);
 
   let cachedCtx = null;
 
@@ -185,9 +187,17 @@
     if (state.ghosts && state.ghosts.length) {
       state.ghosts.forEach((ghost, idx) => {
         const { x, y } = gridToPixelLerped(ghost.prevCol ?? ghost.col, ghost.prevRow ?? ghost.row, ghost.col, ghost.row, alpha);
-        const bodyColor = ghost.frightenedTimer > 0 ? '#e9f1eaff' : ['#ff5252', '#00bcd4', '#e91e63', '#8bc34a'][idx % 4];
-        ctx.fillStyle = bodyColor;
-        ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+        const sprite = getGhostSprite(ghost, idx, state?.steps || 0);
+        if (sprite?.ready) {
+          ctx.drawImage(sprite.img, x, y, TILE_SIZE, TILE_SIZE);
+        } else if (defaultGhostSprite?.ready) {
+          ctx.drawImage(defaultGhostSprite.img, x, y, TILE_SIZE, TILE_SIZE);
+        } else {
+          ctx.fillStyle = COLORS.ghost;
+          ctx.beginPath();
+          ctx.arc(x + TILE_SIZE / 2, y + TILE_SIZE / 2, TILE_SIZE * 0.45, 0, Math.PI * 2);
+          ctx.fill();
+        }
       });
     }
   }
@@ -302,11 +312,11 @@
 
   function loadPacmanSprites() {
     return {
-      RIGHT: loadImage('./assets/sprites/pacman_right.png'),
-      LEFT: loadImage('./assets/sprites/pacman_left.png'),
-      UP: loadImage('./assets/sprites/pacman_up.png'),
-      DOWN: loadImage('./assets/sprites/pacman_down.png'),
-      CLOSED: loadImage('./assets/sprites/pacman_closed.png')
+      RIGHT: loadImage('./assets/sprites/pacman/pacman_right.png'),
+      LEFT: loadImage('./assets/sprites/pacman/pacman_left.png'),
+      UP: loadImage('./assets/sprites/pacman/pacman_up.png'),
+      DOWN: loadImage('./assets/sprites/pacman/pacman_down.png'),
+      CLOSED: loadImage('./assets/sprites/pacman/pacman_closed.png')
     };
   }
 
@@ -321,5 +331,84 @@
       case 'RIGHT':
       default: return pacmanSprites.RIGHT;
     }
+  }
+
+  function loadGhostSprites() {
+    const colors = ['red', 'pink', 'blue', 'orange'];
+    const dirs = ['LEFT', 'RIGHT', 'UP', 'DOWN'];
+    const set = {};
+    colors.forEach((color) => {
+      set[color] = {};
+      dirs.forEach((dir) => {
+        const d = dir.toLowerCase();
+        set[color][dir] = [
+          loadImage(`./assets/sprites/${color}Ghost/${color}Ghost_${d}1.png`),
+          loadImage(`./assets/sprites/${color}Ghost/${color}Ghost_${d}2.png`)
+        ];
+      });
+    });
+    set.scared = [
+      loadImage('./assets/sprites/scaredGhost/scaredGhost.png'),
+      loadImage('./assets/sprites/scaredGhost/scaredGhost2.png')
+    ];
+    return set;
+  }
+
+  function getDefaultGhostSprite(sprites) {
+    return sprites.red?.RIGHT?.[0]
+      || sprites.red?.LEFT?.[0]
+      || sprites.pink?.RIGHT?.[0]
+      || sprites.scared?.[0]
+      || null;
+  }
+
+  function getGhostSprite(ghost, idx, stepCount) {
+    const animPhase = ((stepCount || 0) % 12) < 6 ? 0 : 1;
+    const frightened = (ghost.frightenedTimer || 0) > 0;
+    if (frightened) {
+      const s = ghostSprites.scared[animPhase] || ghostSprites.scared[0];
+      if (s?.ready) return s;
+      const alt = ghostSprites.scared[0];
+      if (alt?.ready) return alt;
+    }
+    const color = verifyGhostColor(ghost, idx);
+    const dir = ghost?.dir || 'LEFT';
+    const set = ghostSprites[color];
+    if (set) {
+      const dirKey = set[dir] ? dir : (set.LEFT ? 'LEFT' : (set.RIGHT ? 'RIGHT' : (set.UP ? 'UP' : (set.DOWN ? 'DOWN' : null))));
+      if (dirKey && set[dirKey]) {
+        const s = set[dirKey][animPhase] || set[dirKey][0];
+        if (s?.ready) return s;
+        if (set[dirKey][0]?.ready) return set[dirKey][0];
+        if (set[dirKey][1]?.ready) return set[dirKey][1];
+      }
+      const anyDir = set.LEFT || set.RIGHT || set.UP || set.DOWN;
+      if (anyDir) {
+        const s = anyDir[animPhase] || anyDir[0];
+        if (s?.ready) return s;
+        if (anyDir[0]?.ready) return anyDir[0];
+        if (anyDir[1]?.ready) return anyDir[1];
+      }
+    }
+    return defaultGhostSprite?.ready ? defaultGhostSprite : null;
+  }
+
+  function verifyGhostColor(ghost, idx) {
+    const palette = ['red', 'pink', 'blue', 'orange'];
+    const fallback = palette[idx % palette.length];
+    const original = ghost?.originalColor || fallback;
+    if (!ghost) return fallback;
+    if (!ghost.originalColor) {
+      ghost.originalColor = original;
+    }
+    if (!ghost.color || !palette.includes(ghost.color)) {
+      console.warn('[ghost-color] color inválido, corrigiendo', { id: ghost.id, was: ghost.color, to: original });
+      ghost.color = original;
+    }
+    if (ghost.color !== ghost.originalColor) {
+      console.warn('[ghost-color] desviación detectada, revirtiendo', { id: ghost.id, was: ghost.color, to: ghost.originalColor });
+      ghost.color = ghost.originalColor;
+    }
+    return ghost.color;
   }
 })();
