@@ -80,16 +80,16 @@
     ],
     lives: 3,
     powerDurationSteps: 60,
-    stepLimit: 3500
+    stepLimit: 50000
   };
 
   const REWARDS = {
     pellet: 10,
-    powerPellet: 20,
+    powerPellet: 50,
     step: -0.3,
     emptyStep: -1.5,
     death: -1000,
-    ghostEaten: 40,
+    ghostEaten: 100,
     levelClear: 10000
   };
 
@@ -99,7 +99,7 @@
     PENALTY: -200,
     HARD_STOP_THRESHOLD: 200,       // early-stop si supera este umbral sin comer
     KILL_CHECK_STEP: 250,           // paso para evaluar kill switch por baja recompensa
-    KILL_SCORE_THRESHOLD: -200      // si la puntuaci�n cae por debajo, termina el episodio
+    KILL_SCORE_THRESHOLD: -1000     // si la puntuaci�n cae por debajo, termina el episodio
   };
 
   // Reglas de balance para no sacrificar progreso por perseguir fantasmas.

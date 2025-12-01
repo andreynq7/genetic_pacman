@@ -6,6 +6,15 @@
   const C = window.gameConstants;
   const T = C.TILE_TYPES;
 
+  function cloneMatrix(matrix) {
+    // Asegura que cada fila sea mutable (array de chars); convierte strings si llegan sin normalizar.
+    return matrix.map((row) => (Array.isArray(row) ? row.slice() : String(row || '').split('')));
+  }
+
+  function cloneActors(list) {
+    return list.map((g) => ({ ...g }));
+  }
+
   /**
    * Convierte un mapa (array de strings o matrix) en matrix mutable.
    * @param {string[]|string[][]} levelMap
@@ -95,7 +104,7 @@
 
     const pelletInfo = countPellets(matrix);
 
-    return {
+    const state = {
       map: matrix,
       pelletsRemaining: pelletInfo.total,
       initialPellets: pelletInfo.total,
@@ -111,6 +120,11 @@
       lastAction: C.ACTIONS.LEFT,
       aStarRecalcs: 0,
       aStarCacheHits: 0,
+      lifeLossCount: options.lifeLossCount ?? 0,
+      scoreInicialNivel: options.scoreInicialNivel ?? null,
+      levelSnapshot: null,
+      stallCount: 0,
+      lifeLostThisStep: false,
       pacman: {
         col: pacSpawn.col,
         row: pacSpawn.row,
@@ -127,9 +141,17 @@
         prevRow: pos.row,
         dir: C.ACTIONS.LEFT,
         frightenedTimer: 0,
-        eatenThisPower: false
+        eatenThisPower: false,
+        returningToHome: false,
+        homeCol: pos.col,
+        homeRow: pos.row
       }))
     };
+
+    // Guarda snapshot y score de arranque del nivel para reintentos tras perder vida.
+    captureLevelSnapshot(state);
+    state.scoreInicialNivel = state.score;
+    return state;
   }
 
   /**
@@ -139,7 +161,7 @@
    */
   function cloneState(state) {
     return {
-      map: state.map.map((row) => row.slice()),
+      map: cloneMatrix(state.map),
       pelletsRemaining: state.pelletsRemaining,
       initialPellets: state.initialPellets,
       score: state.score,
@@ -154,9 +176,63 @@
       lastAction: state.lastAction,
       aStarRecalcs: state.aStarRecalcs || 0,
       aStarCacheHits: state.aStarCacheHits || 0,
+      lifeLossCount: state.lifeLossCount || 0,
+      scoreInicialNivel: state.scoreInicialNivel ?? null,
+      levelSnapshot: state.levelSnapshot ? {
+        map: cloneMatrix(state.levelSnapshot.map),
+        pacman: { ...state.levelSnapshot.pacman },
+        ghosts: cloneActors(state.levelSnapshot.ghosts),
+        pelletsRemaining: state.levelSnapshot.pelletsRemaining,
+        initialPellets: state.levelSnapshot.initialPellets,
+        pelletMilestoneAwarded: state.levelSnapshot.pelletMilestoneAwarded,
+        lastAction: state.levelSnapshot.lastAction,
+        powerTimer: state.levelSnapshot.powerTimer ?? 0,
+        stepsSinceLastPellet: state.levelSnapshot.stepsSinceLastPellet ?? 0
+      } : null,
+      lifeLostThisStep: false,
       pacman: { ...state.pacman },
       ghosts: state.ghosts.map((g) => ({ ...g }))
     };
+  }
+
+  function captureLevelSnapshot(state) {
+    state.levelSnapshot = {
+      map: cloneMatrix(state.map),
+      pacman: { ...state.pacman },
+      ghosts: cloneActors(state.ghosts),
+      pelletsRemaining: state.pelletsRemaining,
+      initialPellets: state.initialPellets,
+      pelletMilestoneAwarded: state.pelletMilestoneAwarded,
+      lastAction: state.lastAction,
+      powerTimer: 0,
+      stepsSinceLastPellet: 0,
+      score: state.score,
+      steps: state.steps
+    };
+    if (state.scoreInicialNivel == null) {
+      state.scoreInicialNivel = state.score;
+    }
+    return state.levelSnapshot;
+  }
+
+  function restoreLevelSnapshot(state) {
+    if (!state.levelSnapshot) return;
+    const snap = state.levelSnapshot;
+    state.map = cloneMatrix(snap.map);
+    state.pacman = { ...snap.pacman };
+    state.ghosts = cloneActors(snap.ghosts);
+    state.pelletsRemaining = snap.pelletsRemaining;
+    state.initialPellets = snap.initialPellets;
+    state.pelletMilestoneAwarded = snap.pelletMilestoneAwarded;
+    state.lastAction = snap.lastAction;
+    state.powerTimer = snap.powerTimer ?? 0;
+    state.stepsSinceLastPellet = snap.stepsSinceLastPellet ?? 0;
+    if (snap.steps != null) {
+      state.steps = snap.steps;
+    }
+    if (snap.score != null) {
+      state.score = snap.score;
+    }
   }
 
   window.gameState = {
@@ -165,6 +241,8 @@
     normalizeLevel,
     findPacmanSpawn,
     findGhostSpawns,
-    countPellets
+    countPellets,
+    captureLevelSnapshot,
+    restoreLevelSnapshot
   };
 })();

@@ -19,6 +19,10 @@
    */
   function stepGame(state, action) {
     const next = STATE.cloneState(state);
+    next.lifeLostThisStep = false;
+    if (!next.levelSnapshot) {
+      STATE.captureLevelSnapshot(next);
+    }
     if (next.status !== 'running') {
       return { state: next, reward: 0, done: true, info: { reason: next.status } };
     }
@@ -26,11 +30,20 @@
     let reward = C.REWARDS.step;
     next.steps += 1;
     next.stepsSinceLastPellet += 1;
+    const events = {
+      pelletEaten: false,
+      powerPelletEaten: false,
+      ghostEatenCount: 0,
+      lifeLost: false,
+      levelCleared: false,
+      returningGhosts: 0,
+      ghostsReturned: 0
+    };
 
     const effectiveAction = chooseActionWithOverrides(next, action);
 
     applyPacmanMove(next, effectiveAction);
-    reward += handleConsumables(next);
+    reward += handleConsumables(next, events);
     const stallSteps = next.stepsSinceLastPellet;
     reward += applyStallPenalty(next);
     const hardStop = C.STALL?.HARD_STOP_THRESHOLD;
@@ -44,10 +57,10 @@
     }
 
     // Colisión antes del movimiento de fantasmas (por si Pac-Man entra a la casa)
-    reward += handleCollisions(next, { checkBeforeGhosts: true });
+    reward += handleCollisions(next, { checkBeforeGhosts: true }, events);
     if (next.status === 'running') {
-      moveGhosts(next);
-      reward += handleCollisions(next);
+      moveGhosts(next, events);
+      reward += handleCollisions(next, {}, events);
     }
 
     updatePowerTimer(next);
@@ -59,13 +72,22 @@
 
     const prevStatus = next.status;
     const done = computeDone(next);
-    if (next.status === 'life_lost' && next.lives > 0) {
-      resetAfterLifeLost(next);
-    }
     if (next.status === 'level_cleared' && prevStatus !== 'level_cleared') {
       reward += C.REWARDS.levelClear;
+      events.levelCleared = true;
     }
-    const info = { reason: next.status, pelletsRemaining: next.pelletsRemaining, lives: next.lives };
+    const info = {
+      reason: next.status,
+      pelletsRemaining: next.pelletsRemaining,
+      lives: next.lives,
+      lifeLossCount: next.lifeLossCount || 0,
+      lifeLostThisStep: next.lifeLostThisStep || false,
+      pelletEaten: events.pelletEaten,
+      powerPelletEaten: events.powerPelletEaten,
+      ghostEatenCount: events.ghostEatenCount,
+      lifeLost: events.lifeLost,
+      levelCleared: events.levelCleared
+    };
     return { state: next, reward, done, info };
   }
 
@@ -153,15 +175,23 @@
    * @param {string} action
    */
   function applyPacmanMove(state, action) {
-    const dir = C.DIR_VECTORS[action] || C.DIR_VECTORS[C.ACTIONS.STAY];
-    const target = { col: state.pacman.col + dir.col, row: state.pacman.row + dir.row };
-    if (isWalkableForPacman(state.map, target.col, target.row)) {
+    const tryMove = (act) => {
+      const dir = C.DIR_VECTORS[act] || C.DIR_VECTORS[C.ACTIONS.STAY];
+      const target = { col: state.pacman.col + dir.col, row: state.pacman.row + dir.row };
+      if (!isWalkableForPacman(state.map, target.col, target.row)) return false;
       state.pacman.prevCol = state.pacman.col;
       state.pacman.prevRow = state.pacman.row;
       state.pacman.col = target.col;
       state.pacman.row = target.row;
-      state.pacman.dir = action;
-      state.lastAction = action;
+      state.pacman.dir = act;
+      state.lastAction = act;
+      return true;
+    };
+
+    // Intenta la acci�n propuesta; si es inv�lida, mantiene el movimiento anterior si sigue siendo v�lido.
+    if (action && tryMove(action)) return;
+    if (state.lastAction && state.lastAction !== action) {
+      tryMove(state.lastAction);
     }
   }
 
@@ -170,18 +200,20 @@
    * @param {Object} state
    * @returns {number} recompensa obtenida en este paso
    */
-  function handleConsumables(state) {
+  function handleConsumables(state, events) {
     const tile = getTile(state.map, state.pacman.col, state.pacman.row);
     let reward = 0;
     if (tile === T.PELLET) {
-      state.map[state.pacman.row][state.pacman.col] = T.PATH;
+      setTile(state.map, state.pacman.col, state.pacman.row, T.PATH);
       state.pelletsRemaining -= 1;
       state.score += C.REWARDS.pellet;
       reward += C.REWARDS.pellet;
       state.stepsSinceLastPellet = 0;
       invalidatePowerPathCache();
+      STATE.captureLevelSnapshot(state);
+      if (events) events.pelletEaten = true;
     } else if (tile === T.POWER) {
-      state.map[state.pacman.row][state.pacman.col] = T.PATH;
+      setTile(state.map, state.pacman.col, state.pacman.row, T.PATH);
       state.pelletsRemaining -= 1;
       state.score += C.REWARDS.powerPellet;
       reward += C.REWARDS.powerPellet;
@@ -189,6 +221,8 @@
       setGhostsFrightened(state);
       invalidatePowerPathCache();
       checkPelletMilestone(state, (extra) => { reward += extra; });
+      STATE.captureLevelSnapshot(state);
+      if (events) events.powerPelletEaten = true;
     } else if (tile === T.PATH) {
       // Penaliza avanzar a casillas vac�as para priorizar limpiar el mapa.
       state.score += C.REWARDS.emptyStep;
@@ -222,6 +256,7 @@
     if (!C.STALL) return 0;
     if (state.stepsSinceLastPellet >= C.STALL.STEP_THRESHOLD) {
       state.stepsSinceLastPellet = 0;
+      state.stallCount = (state.stallCount || 0) + 1;
       state.score += C.STALL.PENALTY;
       return C.STALL.PENALTY;
     }
@@ -234,7 +269,7 @@
    * @param {{checkBeforeGhosts?:boolean}} [options]
    * @returns {number} recompensa asociada a la colisión
    */
-  function handleCollisions(state, options = {}) {
+  function handleCollisions(state, options = {}, events) {
     if (state.status !== 'running') return 0;
     let reward = 0;
     const pacCol = state.pacman.col;
@@ -243,18 +278,23 @@
 
     for (let i = 0; i < state.ghosts.length; i += 1) {
       const ghost = state.ghosts[i];
+      if (ghost.returningToHome) continue;
       if (ghost.col === pacCol && ghost.row === pacRow) {
         const ghostEdible = (frightened || ghost.frightenedTimer > 0) && !ghost.eatenThisPower;
         if (ghostEdible) {
           reward += C.REWARDS.ghostEaten;
           state.score += C.REWARDS.ghostEaten;
           ghost.eatenThisPower = true;
-          respawnGhost(ghost);
+          sendGhostHome(ghost);
+          if (events) events.ghostEatenCount = (events.ghostEatenCount || 0) + 1;
         } else {
           state.lives -= 1;
           state.status = state.lives > 0 ? 'life_lost' : 'game_over';
           reward += C.REWARDS.death;
           state.score += C.REWARDS.death;
+          state.lifeLossCount = (state.lifeLossCount || 0) + 1;
+          state.lifeLostThisStep = true;
+          if (events) events.lifeLost = true;
           break;
         }
       }
@@ -267,10 +307,30 @@
    * Movimiento simple de fantasmas: selecciona un vecino transitable.
    * @param {Object} state
    */
-  function moveGhosts(state) {
+  function moveGhosts(state, events) {
+    let returningCount = 0;
     state.ghosts.forEach((ghost) => {
       const options = getValidMoves(state.map, ghost.col, ghost.row, true);
       if (!options.length) return;
+
+      if (ghost.returningToHome) {
+        returningCount += 1;
+        const nextStep = nextStepToHome(state, ghost);
+        if (nextStep) {
+          ghost.prevCol = ghost.col;
+          ghost.prevRow = ghost.row;
+          ghost.col = nextStep.col;
+          ghost.row = nextStep.row;
+          ghost.dir = directionFromStep({ col: ghost.prevCol, row: ghost.prevRow }, nextStep) || ghost.dir;
+        }
+        if (ghost.col === (ghost.homeCol ?? ghost.col) && ghost.row === (ghost.homeRow ?? ghost.row)) {
+          ghost.returningToHome = false;
+          ghost.frightenedTimer = 0;
+          ghost.eatenThisPower = false;
+          if (events) events.ghostsReturned = (events.ghostsReturned || 0) + 1;
+        }
+        return;
+      }
 
       const withoutReverse = options.filter((opt) => opt.action !== oppositeDirection(ghost.dir));
       const candidates = withoutReverse.length ? withoutReverse : options;
@@ -284,6 +344,7 @@
 
       if (ghost.frightenedTimer > 0) ghost.frightenedTimer -= 1;
     });
+    if (events) events.returningGhosts = returningCount;
   }
 
   /**
@@ -361,16 +422,13 @@
   }
 
   /**
-   * Respawnea un fantasma en la casa central.
+   * Marca a un fantasma como retornando a su spawn y limpia timers.
    * @param {Object} ghost
    */
-  function respawnGhost(ghost) {
-    const spawn = C.DEFAULTS.ghostSpawns[0];
-    ghost.col = spawn.col;
-    ghost.row = spawn.row;
+  function sendGhostHome(ghost) {
+    ghost.returningToHome = true;
     ghost.frightenedTimer = 0;
-    // Mantiene eatenThisPower en true para seguir siendo letal durante el power restante.
-    ghost.dir = C.ACTIONS.LEFT;
+    ghost.eatenThisPower = true;
   }
 
   function isWalkable(map, col, row, allowGate) {
@@ -388,6 +446,14 @@
   function getTile(map, col, row) {
     if (row < 0 || row >= C.MAP_ROWS || col < 0 || col >= C.MAP_COLS) return null;
     return map[row][col];
+  }
+
+  function setTile(map, col, row, value) {
+    if (!map || row < 0 || row >= C.MAP_ROWS || col < 0 || col >= C.MAP_COLS) return;
+    if (!Array.isArray(map[row])) {
+      map[row] = String(map[row] ?? '').split('');
+    }
+    map[row][col] = value;
   }
 
   function oppositeDirection(action) {
@@ -557,23 +623,29 @@
   }
 
   function resetAfterLifeLost(state) {
+    if (!state.levelSnapshot) {
+      STATE.captureLevelSnapshot(state);
+    }
+    STATE.restoreLevelSnapshot(state);
+    state.pacman.col = C.DEFAULTS.pacmanSpawn.col;
+    state.pacman.row = C.DEFAULTS.pacmanSpawn.row;
+    state.pacman.dir = C.ACTIONS.LEFT;
+    state.ghosts = C.DEFAULTS.ghostSpawns.map((pos, idx) => ({
+      id: `ghost-${idx + 1}`,
+      col: pos.col,
+      row: pos.row,
+      prevCol: pos.col,
+      prevRow: pos.row,
+      dir: C.ACTIONS.LEFT,
+      frightenedTimer: 0,
+      eatenThisPower: false
+    }));
     state.status = 'running';
     state.powerTimer = 0;
-    state.stepsSinceLastPellet = 0;
-    // Respawn Pac-Man en el spawn por defecto.
-    const spawn = C.DEFAULTS.pacmanSpawn;
-    state.pacman.col = spawn.col;
-    state.pacman.row = spawn.row;
-    state.pacman.dir = C.ACTIONS.LEFT;
-    // Respawn fantasmas y limpiar estados de power.
-    state.ghosts.forEach((g, idx) => {
-      const spawnG = C.DEFAULTS.ghostSpawns[idx] || C.DEFAULTS.ghostSpawns[0];
-      g.col = spawnG.col;
-      g.row = spawnG.row;
-      g.dir = C.ACTIONS.LEFT;
-      g.frightenedTimer = 0;
-      g.eatenThisPower = false;
-    });
+    state.stepsSinceLastPellet = state.levelSnapshot?.stepsSinceLastPellet ?? 0;
+    state.pelletMilestoneAwarded = state.levelSnapshot?.pelletMilestoneAwarded ?? false;
+    state.lastAction = state.levelSnapshot?.lastAction ?? state.lastAction;
+    invalidatePowerPathCache();
   }
 
   function powerDurationForLevel(level) {
@@ -603,6 +675,14 @@
       }
     }
     return true;
+  }
+
+  function nextStepToHome(state, ghost) {
+    const home = { col: ghost.homeCol ?? C.DEFAULTS.ghostSpawns[0].col, row: ghost.homeRow ?? C.DEFAULTS.ghostSpawns[0].row };
+    if (ghost.col === home.col && ghost.row === home.row) return null;
+    const path = findPathAStar(state, { col: ghost.col, row: ghost.row }, home, { maxExplored: C.BALANCE?.powerPathMaxExplored || 500, maxRadius: C.BALANCE?.powerPathMaxRadius || Infinity });
+    if (!path || path.length < 2) return null;
+    return path[1];
   }
 
 
