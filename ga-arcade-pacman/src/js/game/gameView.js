@@ -1,4 +1,4 @@
-﻿// Tile-based rendering for the Pac-Man board. Keeps grid data and helpers
+// Tile-based rendering for the Pac-Man board. Keeps grid data and helpers
 // available for the future game/GA logic (collisions, movement, pellets).
 (function() {
   // Tile metadata
@@ -192,7 +192,7 @@
     const renderGhosts = collectRenderableGhosts(state);
     if (renderGhosts.length) {
       renderGhosts.forEach((ghost, idx) => {
-        const { x, y } = gridToPixelLerped(ghost.prevCol ?? ghost.col, ghost.prevRow ?? ghost.row, ghost.col, ghost.row, alpha);
+        const { x, y } = gridToPixelLerpedSafe(ghost.prevCol, ghost.prevRow, ghost.col, ghost.row, alpha);
         const stepCount = state?.steps || 0;
         if (ghost.eyeState) {
           drawGhostEyes(ctx, ghost, x, y, stepCount);
@@ -253,6 +253,17 @@
     return { x: c * TILE_SIZE, y: r * TILE_SIZE };
   }
 
+  function gridToPixelLerpedSafe(prevCol, prevRow, col, row, alpha) {
+    const validPrev = Number.isFinite(prevCol) && Number.isFinite(prevRow);
+    const dc = Math.abs((prevCol ?? col) - col);
+    const dr = Math.abs((prevRow ?? row) - row);
+    const adjacent = (dc + dr) === 1;
+    if (!validPrev || !adjacent) {
+      return gridToPixel(col, row);
+    }
+    return gridToPixelLerped(prevCol, prevRow, col, row, alpha);
+  }
+
   function pixelToGrid(x, y) {
     return { col: Math.floor(x / TILE_SIZE), row: Math.floor(y / TILE_SIZE) };
   }
@@ -284,15 +295,18 @@
     const seen = new Set();
     const list = [];
     const addGhost = (ghost) => {
-      if (!ghost) return;
-      const id = ghost.id || `${ghost.col},${ghost.row}`;
-      if (seen.has(id)) return;
-      seen.add(id);
+      if (!ghost || !ghost.id) {
+        console.warn('[render-ghost] entidad sin id omitida', ghost);
+        return;
+      }
+      if (seen.has(ghost.id)) return;
+      seen.add(ghost.id);
       list.push(ghost);
     };
     (state.ghosts || []).forEach(addGhost);
-    const waiting = (state.ghostPen && state.ghostPen.length) ? state.ghostPen : (state.pendingGhosts || []);
-    waiting.forEach(addGhost);
+    if (state.ghostPen && state.ghostPen.length) {
+      state.ghostPen.forEach(addGhost);
+    }
     return list;
   }
 

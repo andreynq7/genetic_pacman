@@ -15,6 +15,8 @@
   let fpsOverlayEl = null;
   let fpsMeasure = { last: 0, frames: 0, fps: 0 };
   let watchdogHandle = null;
+  let lifeLossInProgress = false;
+  let countdownRunning = false;
 
   function initApp() {
     refs = uiLayout.getRefs();
@@ -383,7 +385,8 @@
     if (window.audioManager) {
       window.audioManager.stopAllSounds();
       if (window.audioManager.ensurePreloaded) window.audioManager.ensurePreloaded();
-      window.audioManager.playStartMusic();
+      console.debug('[flow] start demo: start-music');
+      if (window.audioManager.playStartMusicSafe) await window.audioManager.playStartMusicSafe(500);
     }
     await runCountdownSequence();
     if (window.audioManager) {
@@ -398,7 +401,8 @@
     if (window.audioManager) {
       window.audioManager.stopAllSounds();
       if (window.audioManager.ensurePreloaded) window.audioManager.ensurePreloaded();
-      window.audioManager.playStartMusic();
+      console.debug('[flow] level transition: start-music');
+      if (window.audioManager.playStartMusicSafe) await window.audioManager.playStartMusicSafe(500);
     }
     currentState = nextState;
     render();
@@ -410,14 +414,32 @@
   }
 
   async function handleLifeLostTransition() {
+    if (lifeLossInProgress) return;
+    lifeLossInProgress = true;
+    console.debug('[flow] life-lost: begin');
     cancelRenderLoop();
     demoRunning = false;
+    if (currentState) {
+      currentState.status = 'respawning';
+      currentState.respawnTimerSteps = currentState.respawnTimerSteps || gameConstants.RESPAWN_DELAY_STEPS || 1;
+    }
     render();
     let respawnCompleted = false;
     if (window.audioManager) {
       window.audioManager.stopAllSounds();
       if (window.audioManager.ensurePreloaded) await window.audioManager.ensurePreloaded();
-      await window.audioManager.playOnceWithEnd('miss');
+      try {
+        if (window.audioManager.playOnceWithEnd) {
+          await window.audioManager.playOnceWithEnd('miss');
+        } else if (window.audioManager.playOnce) {
+          console.debug('[flow] life-lost: fallback playOnce(miss)');
+          window.audioManager.playOnce('miss');
+        } else {
+          console.warn('[flow] life-lost: audioManager missing playOnceWithEnd and playOnce');
+        }
+      } catch (e) {
+        console.warn('[flow] life-lost: error in miss playback', e?.message || e);
+      }
     }
     if (!currentState || currentState.lives <= 0 || currentState.status === 'game_over') {
       if (window.audioManager) window.audioManager.stopAllSounds();
@@ -426,6 +448,7 @@
       showGameOverModal();
       currentState = gameState.createInitialState();
       render();
+      lifeLossInProgress = false;
       return;
     }
     const tickRespawnDuring = async (msTotal) => {
@@ -444,7 +467,8 @@
       }
     };
     if (window.audioManager) {
-      await window.audioManager.playStartMusic();
+      console.debug('[flow] life-lost: start-music');
+      if (window.audioManager.playStartMusicSafe) await window.audioManager.playStartMusicSafe(500);
     }
     await runCountdownSequence(async (phase) => {
       await tickRespawnDuring(phase.duration);
@@ -453,6 +477,8 @@
       window.audioManager.startGameplayLoops(currentState);
     }
     startRenderLoop();
+    console.debug('[flow] life-lost: end');
+    lifeLossInProgress = false;
   }
 
   function cancelRenderLoop() {
@@ -478,8 +504,14 @@
   ];
 
   async function runCountdownSequence(onPhaseTick) {
+    if (countdownRunning) {
+      console.debug('[countdown] skip overlapping');
+      return;
+    }
+    countdownRunning = true;
     ensureCountdownOverlay();
     for (const phase of countdownPhases) {
+      console.debug('[countdown] phase', phase.label);
       updateCountdownOverlay(phase.label);
       if (onPhaseTick) {
         await onPhaseTick(phase);
@@ -488,6 +520,7 @@
       }
     }
     removeCountdownOverlay();
+    countdownRunning = false;
   }
 
   function ensureCountdownOverlay() {

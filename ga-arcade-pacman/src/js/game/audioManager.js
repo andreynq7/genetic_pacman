@@ -34,6 +34,8 @@
   let powerActive = false;
   let lifeSeqRunning = false;
   let muted = false;
+  let startMusicGuard = false;
+  let startMusicActive = false;
 
   function createAudio(name, { loop = false } = {}) {
     const src = SOUND_PATH + sources[name];
@@ -126,6 +128,7 @@
 
   function stopStartMusic() {
     stop(sounds.start);
+    startMusicActive = false;
   }
 
   function playOnce(name) {
@@ -215,7 +218,44 @@
       applyMutedFlag(a);
       a.loop = false;
       a.currentTime = 0;
-      return a.play().catch((e) => console.warn('[audio] start-music', e?.message || e));
+      startMusicActive = true;
+      return a.play().catch((e) => { console.warn('[audio] start-music', e?.message || e); startMusicActive = false; });
+    });
+  }
+
+  function playStartMusicSafe(timeoutMs = 500) {
+    return warmStartBuffer().then(async () => {
+      const a = sounds.start;
+      if (!a) return;
+      if (startMusicGuard) {
+        console.debug('[audio] start-music: guard active');
+        return;
+      }
+      if (!a.paused && a.currentTime > 0) {
+        console.debug('[audio] start-music: already playing');
+        startMusicActive = true;
+        return;
+      }
+      startMusicGuard = true;
+      stopStartMusic();
+      stopAllLoops();
+      applyMutedFlag(a);
+      a.loop = false;
+      a.currentTime = 0;
+      try {
+        const playPromise = a.play();
+        await Promise.race([
+          playPromise,
+          new Promise((resolve) => setTimeout(resolve, timeoutMs))
+        ]);
+        startMusicActive = !a.paused;
+        console.debug('[audio] start-music: play resolved', { active: startMusicActive });
+      } catch (e) {
+        console.warn('[audio] start-music safe', e?.message || e);
+        startMusicActive = false;
+      } finally {
+        startMusicGuard = false;
+      }
     });
   }
 
@@ -270,12 +310,17 @@
   function resetAll() {
     stopAllSounds();
     lifeSeqRunning = false;
+    startMusicGuard = false;
+    startMusicActive = false;
   }
 
   window.audioManager = {
     loadAll,
     playStartSequence,
     playStartMusic,
+    playStartMusicSafe,
+    playOnce,
+    playOnceWithEnd,
     startGameplayLoops,
     handleStep,
     handleLifeLostSequence,
