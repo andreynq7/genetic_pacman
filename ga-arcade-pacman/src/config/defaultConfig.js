@@ -8,7 +8,7 @@ const defaultConfig = {
   tournamentSize: 3,
   randomSeed: 42,
   simulationFps: 60,
-  episodesPerIndividual: 3
+  episodesPerIndividual: 5
 };
 
 window.defaultConfig = defaultConfig;

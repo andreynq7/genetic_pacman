@@ -164,16 +164,16 @@
    * @param {CanvasRenderingContext2D} ctx
    * @param {Object} state
    */
-  function drawEntities(ctx, state) {
+  function drawEntities(ctx, state, alpha = 1) {
     if (!state) return;
     const pac = state.pacman;
     if (pac) {
       const sprite = getPacmanSprite(pac, state?.steps || 0);
-      const { x, y } = gridToPixel(pac.col, pac.row);
-      if (sprite && sprite.complete) {
-        ctx.drawImage(sprite, x, y, TILE_SIZE, TILE_SIZE);
+      const { x, y } = gridToPixelLerped(pac.prevCol ?? pac.col, pac.prevRow ?? pac.row, pac.col, pac.row, alpha);
+      if (sprite?.ready) {
+        ctx.drawImage(sprite.img, x, y, TILE_SIZE, TILE_SIZE);
       } else {
-        const center = gridCenter(pac.col, pac.row);
+        const center = { x: x + TILE_SIZE / 2, y: y + TILE_SIZE / 2 };
         ctx.fillStyle = '#ffc107';
         ctx.beginPath();
         ctx.arc(center.x, center.y, TILE_SIZE * 0.45, 0.25 * Math.PI, 1.75 * Math.PI);
@@ -184,7 +184,7 @@
     }
     if (state.ghosts && state.ghosts.length) {
       state.ghosts.forEach((ghost, idx) => {
-        const { x, y } = gridToPixel(ghost.col, ghost.row);
+        const { x, y } = gridToPixelLerped(ghost.prevCol ?? ghost.col, ghost.prevRow ?? ghost.row, ghost.col, ghost.row, alpha);
         const bodyColor = ghost.frightenedTimer > 0 ? '#e9f1eaff' : ['#ff5252', '#00bcd4', '#e91e63', '#8bc34a'][idx % 4];
         ctx.fillStyle = bodyColor;
         ctx.fillRect(x + 2, y + 2, TILE_SIZE - 4, TILE_SIZE - 4);
@@ -197,14 +197,14 @@
    * @param {CanvasRenderingContext2D} ctx
    * @param {Object} state
    */
-  function renderFrame(ctx, state) {
+  function renderFrame(ctx, state, alpha = 1) {
     if (!ctx) return;
     if (state?.map) {
       drawLevelMatrix(ctx, state.map);
     } else {
       drawLevel(ctx);
     }
-    drawEntities(ctx, state);
+    drawEntities(ctx, state, alpha);
   }
 
   function drawPellet(ctx, x, y, radius, color) {
@@ -223,6 +223,13 @@
   function gridCenter(col, row) {
     const { x, y } = gridToPixel(col, row);
     return { x: x + TILE_SIZE / 2, y: y + TILE_SIZE / 2 };
+  }
+
+  function gridToPixelLerped(prevCol, prevRow, col, row, alpha) {
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const c = lerp(prevCol, col, Math.max(0, Math.min(1, alpha)));
+    const r = lerp(prevRow, row, Math.max(0, Math.min(1, alpha)));
+    return { x: c * TILE_SIZE, y: r * TILE_SIZE };
   }
 
   function pixelToGrid(x, y) {
@@ -287,9 +294,10 @@
 
   // --------------- Sprites helpers ---------------
   function loadImage(src) {
-    const img = new Image();
-    img.src = src;
-    return img;
+    const sprite = { img: new Image(), ready: false };
+    sprite.img.onload = () => { sprite.ready = true; };
+    sprite.img.src = src;
+    return sprite;
   }
 
   function loadPacmanSprites() {
@@ -304,8 +312,8 @@
 
   function getPacmanSprite(pac, stepCount) {
     const dir = pac?.dir || 'RIGHT';
-    const phase = (stepCount % 12) < 6 ? 'OPEN' : 'CLOSED';
-    if (phase === 'CLOSED') return pacmanSprites.CLOSED;
+    const phaseClosed = (stepCount % 6) >= 3;
+    if (phaseClosed && pacmanSprites.CLOSED?.ready) return pacmanSprites.CLOSED;
     switch (dir) {
       case 'LEFT': return pacmanSprites.LEFT;
       case 'UP': return pacmanSprites.UP;

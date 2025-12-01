@@ -109,9 +109,13 @@
       status: 'running',
       powerTimer: 0,
       lastAction: C.ACTIONS.LEFT,
+      aStarRecalcs: 0,
+      aStarCacheHits: 0,
       pacman: {
         col: pacSpawn.col,
         row: pacSpawn.row,
+        prevCol: pacSpawn.col,
+        prevRow: pacSpawn.row,
         dir: C.ACTIONS.LEFT,
         alive: true
       },
@@ -119,6 +123,8 @@
         id: `ghost-${idx + 1}`,
         col: pos.col,
         row: pos.row,
+        prevCol: pos.col,
+        prevRow: pos.row,
         dir: C.ACTIONS.LEFT,
         frightenedTimer: 0,
         eatenThisPower: false
@@ -146,6 +152,8 @@
       status: state.status,
       powerTimer: state.powerTimer,
       lastAction: state.lastAction,
+      aStarRecalcs: state.aStarRecalcs || 0,
+      aStarCacheHits: state.aStarCacheHits || 0,
       pacman: { ...state.pacman },
       ghosts: state.ghosts.map((g) => ({ ...g }))
     };

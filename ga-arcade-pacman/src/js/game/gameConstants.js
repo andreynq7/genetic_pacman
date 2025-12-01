@@ -80,23 +80,26 @@
     ],
     lives: 3,
     powerDurationSteps: 60,
-    stepLimit: 2000
+    stepLimit: 3500
   };
 
   const REWARDS = {
-    pellet: 100,
-    powerPellet: 200,
-    step: -0.5,
-    emptyStep: -10,
-    death: -5000,
-    ghostEaten: 400,
+    pellet: 10,
+    powerPellet: 20,
+    step: -0.3,
+    emptyStep: -1.5,
+    death: -1000,
+    ghostEaten: 40,
     levelClear: 10000
   };
 
   // Penalizaci�n por estancamiento (demasiados pasos sin comer pellet)
   const STALL = {
-    STEP_THRESHOLD: 40,
-    PENALTY: -200
+    STEP_THRESHOLD: 30,
+    PENALTY: -200,
+    HARD_STOP_THRESHOLD: 200,       // early-stop si supera este umbral sin comer
+    KILL_CHECK_STEP: 250,           // paso para evaluar kill switch por baja recompensa
+    KILL_SCORE_THRESHOLD: -200      // si la puntuaci�n cae por debajo, termina el episodio
   };
 
   // Reglas de balance para no sacrificar progreso por perseguir fantasmas.
@@ -113,6 +116,9 @@
   BALANCE.pelletDangerRadius = 4;      // radio de seguridad para priorizar pellet
   BALANCE.ghostChaseDangerRadius = 3;  // radio de seguridad al perseguir fantasmas
   BALANCE.ghostChaseMinPellets = 0.15; // no perseguir fantasmas si queda menos de este porcentaje de pellets
+  BALANCE.powerPathRecalcInterval = 3; // recálculo de A* en power cada N pasos
+  BALANCE.powerPathMaxRadius = 10;     // limitar radio de búsqueda en power mode
+  BALANCE.powerPathMaxExplored = 120;  // máximo de nodos explorados por A* en power
 
   // Escalado de dificultad por nivel.
   const DIFFICULTY = {

@@ -36,6 +36,16 @@
   }
 
   const baseDefaults = window.defaultConfig || {};
+  const PERFORMANCE_TARGETS = {
+    levelRange: { min: 1, max: 6 },
+    growthRate: { min: 0.10, max: 0.25 }, // crecimiento esperado por ventana
+    pointsPerMinute: { min: 1200, max: 3000 },
+    efficiency: { min: 1.5, max: 3 }, // puntos por paso de simulación (aprox.)
+    percentileRange: { min: 0.75, max: 0.9 },
+    potentialGap: { min: 0.10, max: 0.30 }, // 10-30% por debajo del mejor
+    evaluationWindowGenerations: 10,
+    evaluationFrequencyGenerations: 5
+  };
 
   /**
    * Configuraci�n por defecto del GA (puede ser sobreescrita).
@@ -44,15 +54,15 @@
   const defaultGAConfig = {
     populationSize: baseDefaults.populationSize || 30,
     generations: baseDefaults.generations || 50,
-    selectionRate: baseDefaults.selectionRate || 40,
-    crossoverRate: baseDefaults.crossoverRate || 45,
-    mutationRate: baseDefaults.mutationRate || 15,
+    selectionRate: baseDefaults.selectionRate || 50,
+    crossoverRate: baseDefaults.crossoverRate || 40,
+    mutationRate: baseDefaults.mutationRate || 10,
     tournamentSize: baseDefaults.tournamentSize || 3,
-    elitismCount: 2,
-    mutationStrength: 2,      // magnitud del ruido agregado en mutaci�n
-    mutationGeneRate: 0.5,      // probabilidad por gen de mutar
-    randomSeed: baseDefaults.randomSeed || 1234,
-    mutationSchedule: { start: 3, end: 0.75 }, // factor multiplicativo dinamico
+    elitismCount: 3,
+    mutationStrength: 0.8,      // magnitud del ruido agregado en mutaci�n
+    mutationGeneRate: 0.6,      // probabilidad por gen de mutar
+    randomSeed: baseDefaults.randomSeed || 1234, // baseDefaults.randomSeed ||
+    mutationSchedule: { start: 1.2, end: 0.7 }, // factor multiplicativo dinamico
     fitnessConfig: FITNESS.defaultFitnessConfig
   };
 
@@ -93,6 +103,8 @@
       population,
       generation: 0,
       bestEver: null,
+      lastMetrics: null,
+      metricsHistory: [],
       history: {
         bestFitness: [],
         avgFitness: []
@@ -141,6 +153,9 @@
 
     gaState.bestEver = best;
     const avg = sum / gaState.population.length;
+    const perf = computePerformanceSnapshot(gaState, best, avg);
+    gaState.lastMetrics = perf;
+    pushWithLimit(gaState.metricsHistory, perf);
     return { best, avg };
   }
 
@@ -150,9 +165,15 @@
    * @returns {{best:Object, avg:number}}
    */
   function runGeneration(gaState) {
+    const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     const { best, avg } = evaluatePopulation(gaState);
-    gaState.history.bestFitness.push(best.fitness);
-    gaState.history.avgFitness.push(avg);
+    const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    maybeAutoTuneParameters(gaState);
+    pushWithLimit(gaState.history.bestFitness, best.fitness);
+    pushWithLimit(gaState.history.avgFitness, avg);
+    const elapsed = t1 - t0;
+    const perf = gaState.lastMetrics;
+    console.log(`[GA] gen ${gaState.generation} eval ${elapsed.toFixed(1)}ms | A* recalcs ${perf?.aStarRecalcs ?? 'n/a'} cacheHits ${perf?.aStarCacheHits ?? 'n/a'}`);
 
     const nextPop = buildNextPopulation(gaState);
     gaState.population = nextPop;
@@ -183,6 +204,7 @@
     const cfg = gaState.config;
     const rng = gaState.rng;
     const current = [...gaState.population].sort((a, b) => b.fitness - a.fitness);
+    const priorityWeights = computePriorityWeights(current, PERFORMANCE_TARGETS);
 
     const next = [];
     // Elitismo: copia los mejores sin cambios
@@ -200,7 +222,7 @@
 
     // Selecci�n (clones directos)
     for (let i = 0; i < selCount && next.length < cfg.populationSize; i += 1) {
-      const parent = tournamentSelect(current, cfg.tournamentSize, rng);
+      const parent = tournamentSelect(current, cfg.tournamentSize, rng, priorityWeights);
       next.push({ id: `g${gaState.generation + 1}-sel-${i}`, chromosome: POLICY.cloneChromosome(parent.chromosome), fitness: null, evalStats: null });
     }
 
@@ -209,8 +231,8 @@
     // Cruces
     let crossIdx = 0;
     while (next.length < cfg.populationSize && crossIdx < crossCount) {
-      const p1 = tournamentSelect(current, cfg.tournamentSize, rng);
-      const p2 = tournamentSelect(current, cfg.tournamentSize, rng);
+      const p1 = tournamentSelect(current, cfg.tournamentSize, rng, priorityWeights);
+      const p2 = tournamentSelect(current, cfg.tournamentSize, rng, priorityWeights);
       const [c1, c2] = crossoverSinglePoint(p1.chromosome, p2.chromosome, rng);
       next.push({ id: `g${gaState.generation + 1}-cross-${crossIdx}`, chromosome: mutateChromosome(c1, cfg, rng, mutationTuning), fitness: null, evalStats: null });
       if (next.length < cfg.populationSize) {
@@ -222,7 +244,7 @@
     // Mutaciones directas
     let mutIdx = 0;
     while (next.length < cfg.populationSize && mutIdx < mutCount) {
-      const parent = tournamentSelect(current, cfg.tournamentSize, rng);
+      const parent = tournamentSelect(current, cfg.tournamentSize, rng, priorityWeights);
       const child = mutateChromosome(POLICY.cloneChromosome(parent.chromosome), cfg, rng, mutationTuning);
       next.push({ id: `g${gaState.generation + 1}-mut-${mutIdx}`, chromosome: child, fitness: null, evalStats: null });
       mutIdx += 1;
@@ -230,8 +252,8 @@
 
     // Si faltan individuos por redondeos, rellenar con cruces/mutaciones adicionales
     while (next.length < cfg.populationSize) {
-      const p1 = tournamentSelect(current, cfg.tournamentSize, rng);
-      const p2 = tournamentSelect(current, cfg.tournamentSize, rng);
+      const p1 = tournamentSelect(current, cfg.tournamentSize, rng, priorityWeights);
+      const p2 = tournamentSelect(current, cfg.tournamentSize, rng, priorityWeights);
       const [c1, c2] = crossoverSinglePoint(p1.chromosome, p2.chromosome, rng);
       next.push({ id: `g${gaState.generation + 1}-fill-${next.length}`, chromosome: mutateChromosome(c1, cfg, rng, mutationTuning), fitness: null, evalStats: null });
       if (next.length < cfg.populationSize) {
@@ -248,11 +270,11 @@
    * @param {number} k Tama�o de torneo.
    * @param {SeededRng} rng
    */
-  function tournamentSelect(population, k, rng) {
+  function tournamentSelect(population, k, rng, weights = null) {
     const size = Math.max(2, Math.min(k, population.length));
     let best = null;
     for (let i = 0; i < size; i += 1) {
-      const candidate = rng.pick(population);
+      const candidate = pickWeighted(population, weights, rng);
       if (!best || candidate.fitness > best.fitness) {
         best = candidate;
       }
@@ -293,6 +315,133 @@
     return POLICY.normalizeChromosome(genes);
   }
 
+  function pickWeighted(population, weights, rng) {
+    if (!weights || weights.length !== population.length) return rng.pick(population);
+    const total = weights.reduce((a, b) => a + b, 0);
+    if (!total) return rng.pick(population);
+    let r = rng.random() * total;
+    for (let i = 0; i < population.length; i += 1) {
+      r -= weights[i];
+      if (r <= 0) return population[i];
+    }
+    return population[population.length - 1];
+  }
+
+  function computePriorityWeights(population, targets) {
+    if (!population.length) return null;
+    const bestFitness = population[0].fitness ?? 1;
+    const gapRange = targets.potentialGap;
+    const percRange = targets.percentileRange;
+    const len = population.length;
+    return population.map((ind, idx) => {
+      const percentile = len > 1 ? 1 - (idx / (len - 1)) : 1;
+      const gap = Math.max(0, (bestFitness - ind.fitness) / Math.max(1, Math.abs(bestFitness)));
+      const gapBonus = (gap >= gapRange.min && gap <= gapRange.max) ? 1.25 : 1;
+      const percentileBonus = (percentile >= percRange.min && percentile <= percRange.max) ? 1.15 : 1;
+      const base = Math.max(1, ind.fitness);
+      return base * gapBonus * percentileBonus;
+    });
+  }
+
+  function computePerformanceSnapshot(gaState, best, avg) {
+    const evalStats = best?.evalStats;
+    const episodes = Array.isArray(evalStats?.episodes) ? evalStats.episodes : [];
+    const meanSteps = episodes.length
+      ? episodes.reduce((acc, ep) => acc + (ep?.steps || 0), 0) / episodes.length
+      : Math.max(1, evalStats?.steps || POLICY.NUM_GENES);
+    const meanReward = evalStats?.fitness ?? best?.fitness ?? avg ?? 0;
+    const stepsPerMinute = 600; // asumiendo 10 pasos lógicos/seg (100 ms)
+    const pointsPerMinute = (meanReward / Math.max(1, meanSteps)) * stepsPerMinute;
+    const efficiency = meanReward / Math.max(1, meanSteps);
+    const level = episodes.reduce((acc, ep) => Math.max(acc, ep?.finalState?.level || 0), 0) || PERFORMANCE_TARGETS.levelRange.min;
+    const totalAStarRecalcs = episodes.reduce((acc, ep) => acc + ((ep?.finalState?.aStarRecalcs) || 0), 0);
+    const totalAStarCacheHits = episodes.reduce((acc, ep) => acc + ((ep?.finalState?.aStarCacheHits) || 0), 0);
+
+    const hist = gaState.history?.avgFitness || [];
+    const win = PERFORMANCE_TARGETS.evaluationWindowGenerations;
+    let growthRate = 0;
+    if (hist.length >= win) {
+      const prev = hist[hist.length - win];
+      const denom = Math.max(1, Math.abs(prev));
+      growthRate = (avg - prev) / denom;
+    }
+    const { p75, p90 } = computePercentiles(gaState.population);
+    return {
+      level,
+      meanReward,
+      meanSteps,
+      pointsPerMinute,
+      efficiency,
+      growthRate,
+      percentile75: p75,
+      percentile90: p90,
+      aStarRecalcs: totalAStarRecalcs,
+      aStarCacheHits: totalAStarCacheHits
+    };
+  }
+
+  function computePercentiles(population) {
+    if (!population.length) return { p75: 0, p90: 0 };
+    const values = population.map((p) => p.fitness).sort((a, b) => a - b);
+    const at = (q) => values[Math.min(values.length - 1, Math.floor((values.length - 1) * q))];
+    return { p75: at(0.75), p90: at(0.9) };
+  }
+
+  function maybeAutoTuneParameters(gaState) {
+    const perf = gaState.lastMetrics;
+    if (!perf) return;
+    const targets = PERFORMANCE_TARGETS;
+    if (gaState.generation !== 0 && (gaState.generation % targets.evaluationFrequencyGenerations !== 0)) return;
+
+    const cfg = gaState.config;
+    let tweaked = false;
+    const desiredElitism = gaState.generation < targets.evaluationWindowGenerations ? 4 : 2;
+    cfg.elitismCount = clamp(desiredElitism, 1, Math.max(2, Math.floor(cfg.populationSize * 0.2)));
+
+    const underperforming = (perf.growthRate < targets.growthRate.min)
+      || (perf.efficiency < targets.efficiency.min)
+      || (perf.pointsPerMinute < targets.pointsPerMinute.min);
+    const overperforming = (perf.growthRate > targets.growthRate.max)
+      && (perf.efficiency > targets.efficiency.max);
+
+    if (underperforming) {
+      cfg.mutationRate = clamp(cfg.mutationRate + 5, 10, 60);
+      cfg.crossoverRate = clamp(cfg.crossoverRate + 2, 20, 70);
+      cfg.selectionRate = clamp(cfg.selectionRate - 5, 20, 80);
+      cfg.mutationStrength = clamp(cfg.mutationStrength * 1.08, 0.5, 3);
+      tweaked = true;
+    } else if (overperforming) {
+      cfg.mutationRate = clamp(cfg.mutationRate - 5, 5, 50);
+      cfg.crossoverRate = clamp(cfg.crossoverRate - 2, 15, 65);
+      cfg.selectionRate = clamp(cfg.selectionRate + 5, 30, 90);
+      cfg.mutationStrength = clamp(cfg.mutationStrength * 0.92, 0.5, 3);
+      tweaked = true;
+    }
+
+    cfg.fitnessConfig.baseLevel = targets.levelRange.min;
+    cfg.fitnessConfig.maxCurriculumLevel = targets.levelRange.max;
+    if (cfg.fitnessConfig.curriculumGrowth == null) {
+      cfg.fitnessConfig.curriculumGrowth = FITNESS?.defaultFitnessConfig?.curriculumGrowth ?? 0.12;
+    }
+
+    if (tweaked) normalizeRates(cfg);
+  }
+
+  function normalizeRates(cfg) {
+    const total = cfg.selectionRate + cfg.crossoverRate + cfg.mutationRate;
+    if (total > 100) {
+      const scale = 100 / total;
+      cfg.selectionRate *= scale;
+      cfg.crossoverRate *= scale;
+      cfg.mutationRate *= scale;
+    } else if (total < 95) {
+      const deficit = 100 - total;
+      cfg.crossoverRate = clamp(cfg.crossoverRate + deficit * 0.5, 10, 80);
+      cfg.selectionRate = clamp(cfg.selectionRate + deficit * 0.3, 10, 90);
+      cfg.mutationRate = clamp(cfg.mutationRate + deficit * 0.2, 5, 60);
+    }
+  }
+
   function randomChromosomeWithRng(rng) {
     const genes = [];
     for (let i = 0; i < POLICY.NUM_GENES; i += 1) {
@@ -303,6 +452,13 @@
 
   function clamp(val, min, max) {
     return Math.max(min, Math.min(max, val));
+  }
+
+  function pushWithLimit(arr, value, limit = 200) {
+    arr.push(value);
+    if (arr.length > limit) {
+      arr.splice(0, arr.length - limit);
+    }
   }
 
   function seedFitnessConfig(baseCfg, generation, individualIndex) {

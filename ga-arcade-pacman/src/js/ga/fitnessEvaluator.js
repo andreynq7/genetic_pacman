@@ -25,18 +25,18 @@
    * - episodeSeeds: lista opcional de semillas por episodio; si existe se usa en lugar de derivar desde baseSeed.
    */
   const defaultFitnessConfig = {
-    episodesPerIndividual: 8,
-    maxStepsPerEpisode: CONST.DEFAULTS.stepLimit,
+    episodesPerIndividual: 5,
+    maxStepsPerEpisode: 3500,
     gamma: 1,
     baseSeed: 12345,
     episodeSeeds: null,
     baseLevel: 1,
-    curriculumGrowth: 0,
-    maxCurriculumLevel: 1,
-    completionBonus: 1200,
+    curriculumGrowth: 0.15, // subir de nivel de forma gradual; converge al rango 1-6
+    maxCurriculumLevel: 6,
+    completionBonus: 3000,
     generationOffset: 0,
-    robustMode: false,
-    robustLevels: [1, 2],
+    robustMode: true,
+    robustLevels: [1, 2, 3],
     disableCompletionBonus: false
   };
 

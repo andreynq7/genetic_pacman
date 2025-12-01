@@ -7,6 +7,7 @@
   const C = window.gameConstants;
   const STATE = window.gameState;
   const T = C.TILE_TYPES;
+  let powerPathCache = null;
 
   /**
    * Ejecuta un paso de simulación discreto.
@@ -30,7 +31,17 @@
 
     applyPacmanMove(next, effectiveAction);
     reward += handleConsumables(next);
+    const stallSteps = next.stepsSinceLastPellet;
     reward += applyStallPenalty(next);
+    const hardStop = C.STALL?.HARD_STOP_THRESHOLD;
+    if (hardStop && stallSteps >= hardStop) {
+      next.status = 'stalled';
+    }
+    const killStep = C.STALL?.KILL_CHECK_STEP;
+    const killScore = C.STALL?.KILL_SCORE_THRESHOLD;
+    if (killStep && killScore != null && next.steps >= killStep && next.score <= killScore) {
+      next.status = 'killed';
+    }
 
     // Colisión antes del movimiento de fantasmas (por si Pac-Man entra a la casa)
     reward += handleCollisions(next, { checkBeforeGhosts: true });
@@ -40,6 +51,11 @@
     }
 
     updatePowerTimer(next);
+
+    // Si perdi� una vida pero le quedan, respawnea y sigue el episodio.
+    if (next.status === 'life_lost' && next.lives > 0) {
+      resetAfterLifeLost(next);
+    }
 
     const prevStatus = next.status;
     const done = computeDone(next);
@@ -76,7 +92,7 @@
     const pelletsThreshold = C.BALANCE?.ghostChaseMinPellets ?? 0.15;
     if (pelletsFrac < pelletsThreshold) return null;
 
-    const path = findPathAStar(state, { col: state.pacman.col, row: state.pacman.row }, { col: frightenedGhost.col, row: frightenedGhost.row });
+    const path = getCachedPowerPath(state, frightenedGhost);
     const pathLen = path ? path.length - 1 : Infinity;
     if (!path || pathLen <= 0) return null;
     if (pathLen >= state.powerTimer) return null;
@@ -92,6 +108,45 @@
     return directionFromStep(state.pacman, nextStep);
   }
 
+  function invalidatePowerPathCache() {
+    powerPathCache = null;
+  }
+
+  function getCachedPowerPath(state, ghost) {
+    const interval = C.BALANCE?.powerPathRecalcInterval ?? 2;
+    const maxRadius = C.BALANCE?.powerPathMaxRadius ?? Infinity;
+    const maxExplored = C.BALANCE?.powerPathMaxExplored ?? Infinity;
+    const steps = state.steps || 0;
+    const cache = powerPathCache;
+    const cacheValid = cache
+      && cache.ghostId === ghost.id
+      && cache.pelletsRemaining === state.pelletsRemaining
+      && cache.start.col === state.pacman.col
+      && cache.start.row === state.pacman.row
+      && cache.ghostPos.col === ghost.col
+      && cache.ghostPos.row === ghost.row
+      && (steps - cache.stepComputed) < interval;
+    if (cacheValid) {
+      state.aStarCacheHits = (state.aStarCacheHits || 0) + 1;
+      return cache.path;
+    }
+
+    const path = findPathAStar(state, { col: state.pacman.col, row: state.pacman.row }, { col: ghost.col, row: ghost.row }, {
+      maxRadius,
+      maxExplored
+    });
+    state.aStarRecalcs = (state.aStarRecalcs || 0) + 1;
+    powerPathCache = {
+      ghostId: ghost.id,
+      pelletsRemaining: state.pelletsRemaining,
+      start: { col: state.pacman.col, row: state.pacman.row },
+      ghostPos: { col: ghost.col, row: ghost.row },
+      path,
+      stepComputed: steps
+    };
+    return path;
+  }
+
   /**
    * Mueve a Pac-Man una celda si es transitable.
    * @param {Object} state
@@ -101,6 +156,8 @@
     const dir = C.DIR_VECTORS[action] || C.DIR_VECTORS[C.ACTIONS.STAY];
     const target = { col: state.pacman.col + dir.col, row: state.pacman.row + dir.row };
     if (isWalkableForPacman(state.map, target.col, target.row)) {
+      state.pacman.prevCol = state.pacman.col;
+      state.pacman.prevRow = state.pacman.row;
       state.pacman.col = target.col;
       state.pacman.row = target.row;
       state.pacman.dir = action;
@@ -122,6 +179,7 @@
       state.score += C.REWARDS.pellet;
       reward += C.REWARDS.pellet;
       state.stepsSinceLastPellet = 0;
+      invalidatePowerPathCache();
     } else if (tile === T.POWER) {
       state.map[state.pacman.row][state.pacman.col] = T.PATH;
       state.pelletsRemaining -= 1;
@@ -129,6 +187,7 @@
       reward += C.REWARDS.powerPellet;
       state.stepsSinceLastPellet = 0;
       setGhostsFrightened(state);
+      invalidatePowerPathCache();
       checkPelletMilestone(state, (extra) => { reward += extra; });
     } else if (tile === T.PATH) {
       // Penaliza avanzar a casillas vac�as para priorizar limpiar el mapa.
@@ -217,6 +276,8 @@
       const candidates = withoutReverse.length ? withoutReverse : options;
       const choice = pickGhostMove(state, ghost, candidates);
 
+      ghost.prevCol = ghost.col;
+      ghost.prevRow = ghost.row;
       ghost.col = choice.col;
       ghost.row = choice.row;
       ghost.dir = choice.action;
@@ -269,6 +330,7 @@
           ghost.eatenThisPower = false;
           ghost.frightenedTimer = 0;
         });
+        invalidatePowerPathCache();
       }
     }
   }
@@ -286,6 +348,9 @@
       return true;
     }
     if (state.status === 'game_over') {
+      return true;
+    }
+    if (state.status === 'stalled' || state.status === 'killed') {
       return true;
     }
     if (state.steps >= state.stepLimit) {
@@ -373,7 +438,7 @@
    * @param {{col:number,row:number}} goal
    * @returns {Array<{col:number,row:number}>|null}
    */
-  function findPathAStar(state, start, goal) {
+  function findPathAStar(state, start, goal, options = {}) {
     const startKey = key(start.col, start.row);
     const goalKey = key(goal.col, goal.row);
     const open = new Set([startKey]);
@@ -383,6 +448,9 @@
     gScore[startKey] = 0;
     fScore[startKey] = manhattan(start.col, start.row, goal.col, goal.row);
     const goalIsGate = getTile(state.map, goal.col, goal.row) === T.GHOST_GATE;
+    let explored = 0;
+    const maxExplored = options.maxExplored || Infinity;
+    const maxRadius = options.maxRadius || Infinity;
 
     while (open.size > 0) {
       const currentKey = lowestF(open, fScore);
@@ -396,6 +464,7 @@
       neighbors.forEach((n) => {
         const nKey = key(n.col, n.row);
         const tentativeG = (gScore[currentKey] ?? Infinity) + 1;
+        if (tentativeG > maxRadius) return;
         if (tentativeG < (gScore[nKey] ?? Infinity)) {
           cameFrom[nKey] = currentKey;
           gScore[nKey] = tentativeG;
@@ -403,6 +472,10 @@
           open.add(nKey);
         }
       });
+      explored += 1;
+      if (explored > maxExplored) {
+        return null;
+      }
     }
     return null;
   }

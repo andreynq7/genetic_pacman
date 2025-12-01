@@ -5,6 +5,11 @@
   let currentState = null;
   let demoTimer = null;
   let demoPolicyFn = null;
+  let demoRunning = false;
+  let renderLoopHandle = null;
+  let lastTimestamp = null;
+  let accumulatorMs = 0;
+  const stepMs = 100; // 10 pasos lógicos por segundo, render a ~60fps
 
   function initApp() {
     refs = uiLayout.getRefs();
@@ -42,9 +47,9 @@
     render();
   }
 
-  function render() {
+  function render(alpha = 1) {
     if (ctx && currentState) {
-      gameView.renderFrame(ctx, currentState);
+      gameView.renderFrame(ctx, currentState, alpha);
     }
     syncHud();
   }
@@ -76,7 +81,7 @@
     } else if (status.status === 'paused') {
       gaController.resume();
       uiMetrics.updateStatusBadge('Entrenando', 'training');
-    } else if (demoTimer) {
+    } else if (demoRunning) {
       pauseDemoLoop();
     }
   }
@@ -156,10 +161,7 @@
     }
     currentState = gameState.createInitialState();
     uiMetrics.updateStatusBadge('Demo', 'demo');
-    demoTimer = setInterval(() => {
-      const action = demoPolicyFn ? demoPolicyFn(currentState) : gameConstants.ACTIONS.STAY;
-      stepDemo(action);
-    }, 140);
+    startRenderLoop();
   }
 
   function pauseDemoLoop() {
@@ -168,9 +170,14 @@
   }
 
   function stopDemo() {
+    demoRunning = false;
     if (demoTimer) {
       clearInterval(demoTimer);
       demoTimer = null;
+    }
+    if (renderLoopHandle) {
+      cancelAnimationFrame(renderLoopHandle);
+      renderLoopHandle = null;
     }
   }
 
@@ -240,28 +247,55 @@
 
   // ----------------- Simulación de juego y entrada -----------------
   function stepDemo(action) {
+    if (!demoRunning) return;
     if (!currentState) return;
     const result = gameLogic.stepGame(currentState, action || gameConstants.ACTIONS.STAY);
     currentState = result.state;
-    render();
-    if (result.done && demoTimer) {
+    if (result.done) {
       const reason = result.state.status;
       if ((reason === 'life_lost' || reason === 'game_over') && result.state.lives <= 0) {
         stopDemo();
         uiMetrics.updateStatusBadge('Game Over', 'paused');
         showGameOverModal();
-      } else if (reason === 'life_lost' && result.state.lives > 0) {
-        // Reinicia el nivel conservando vidas restantes.
+        currentState = gameState.createInitialState();
+        render();
+        return;
+      }
+      if (reason === 'life_lost' && result.state.lives > 0) {
         currentState = gameState.createInitialState({ lives: result.state.lives, level: result.state.level, score: result.state.score });
         render();
-      } else {
-        // Reinicio por limpieza de nivel u otra razón.
-        const nextLevel = reason === 'level_cleared' ? (result.state.level || 1) + 1 : (result.state.level || 1);
-        // Mantiene el puntaje acumulado; los castigos/bonos ya se aplican al finalizar.
-        currentState = gameState.createInitialState({ lives: result.state.lives, level: nextLevel, score: result.state.score });
-        render();
+        return;
       }
+      const nextLevel = reason === 'level_cleared' ? (result.state.level || 1) + 1 : (result.state.level || 1);
+      currentState = gameState.createInitialState({ lives: result.state.lives, level: nextLevel, score: result.state.score });
+      render();
     }
+  }
+
+  function renderLoop(timestamp) {
+    if (!demoRunning) return;
+    if (lastTimestamp == null) lastTimestamp = timestamp;
+    const delta = timestamp - lastTimestamp;
+    lastTimestamp = timestamp;
+    accumulatorMs += delta;
+    while (accumulatorMs >= stepMs) {
+      const action = demoPolicyFn ? demoPolicyFn(currentState) : gameConstants.ACTIONS.STAY;
+      stepDemo(action);
+      accumulatorMs -= stepMs;
+    }
+    const alpha = Math.max(0, Math.min(1, accumulatorMs / stepMs));
+    render(alpha);
+    if (demoRunning && currentState?.status !== 'game_over') {
+      renderLoopHandle = requestAnimationFrame(renderLoop);
+    }
+  }
+
+  function startRenderLoop() {
+    stopDemo();
+    demoRunning = true;
+    lastTimestamp = null;
+    accumulatorMs = 0;
+    renderLoopHandle = requestAnimationFrame(renderLoop);
   }
 
 
