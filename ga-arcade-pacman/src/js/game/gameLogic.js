@@ -300,9 +300,9 @@
           state.respawnTimerSteps = state.lives > 0 ? (C.RESPAWN_DELAY_STEPS || 1) : 0;
           state.pacman.alive = state.lives > 0 ? false : state.pacman.alive;
           reward += C.REWARDS.death;
-          state.score += C.REWARDS.death;
           state.lifeLossCount = (state.lifeLossCount || 0) + 1;
           state.lifeLostThisStep = true;
+          STATE.captureLevelSnapshot(state);
           if (events) events.lifeLost = true;
           break;
         }

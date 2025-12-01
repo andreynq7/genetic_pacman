@@ -14,6 +14,7 @@
   const comparisonData = { on: null, off: null };
   let fpsOverlayEl = null;
   let fpsMeasure = { last: 0, frames: 0, fps: 0 };
+  let lifeLossInProgress = false;
 
   function initApp() {
     refs = uiLayout.getRefs();
@@ -318,6 +319,10 @@
     if (window.audioManager) {
       window.audioManager.handleStep(currentState, result.info || {});
     }
+    if (result.info && result.info.lifeLost) {
+      runLifeLostFlow();
+      return;
+    }
     if (result.done) {
       const reason = result.state.status;
       if ((reason === 'game_over') && result.state.lives <= 0) {
@@ -330,7 +335,6 @@
         return;
       }
       if (reason === 'stalled' || reason === 'killed') {
-        // En demo mantenemos continuidad: limpiamos contadores de estancamiento y seguimos.
         currentState.status = 'running';
         currentState.stepsSinceLastPellet = 0;
         currentState.stallCount = 0;
@@ -383,6 +387,52 @@
       window.audioManager.startGameplayLoops(currentState);
     }
     startRenderLoop();
+  }
+
+  async function runLifeLostFlow() {
+    if (lifeLossInProgress) return;
+    lifeLossInProgress = true;
+    cancelRenderLoop();
+    demoRunning = false;
+    if (window.audioManager) {
+      window.audioManager.stopAllSounds();
+      try { if (window.audioManager.ensurePreloaded) await window.audioManager.ensurePreloaded(); } catch (_) {}
+      try {
+        if (window.audioManager.playOnceWithEnd) {
+          await window.audioManager.playOnceWithEnd('miss');
+        } else if (window.audioManager.playOnce) {
+          window.audioManager.playOnce('miss');
+        }
+      } catch (_) {}
+    }
+    const d = ensureDeathOverlay();
+    updateDeathOverlay('MISS');
+    await delay(600);
+    removeDeathOverlay();
+    let complete = false;
+    while (!complete && currentState && currentState.lives > 0) {
+      const res = gameLogic.stepGame(currentState, gameConstants.ACTIONS.STAY);
+      currentState = res.state;
+      render();
+      complete = currentState.status === 'running' && (res.info?.respawnTimerSteps === 0);
+      await delay(stepMs);
+    }
+    if (!currentState || currentState.lives <= 0 || currentState.status === 'game_over') {
+      if (window.audioManager) window.audioManager.stopAllSounds();
+      stopDemo();
+      uiMetrics.updateStatusBadge('Game Over', 'paused');
+      showGameOverModal();
+      currentState = gameState.createInitialState();
+      render();
+      lifeLossInProgress = false;
+      return;
+    }
+    if (window.audioManager) {
+      try { if (window.audioManager.playStartMusicSafe) await window.audioManager.playStartMusicSafe(500); } catch (_) {}
+      window.audioManager.startGameplayLoops(currentState);
+    }
+    startRenderLoop();
+    lifeLossInProgress = false;
   }
 
   async function beginLevelTransition(nextState) {
@@ -493,6 +543,42 @@
       fpsMeasure.last = ts;
       fpsOverlayEl.textContent = `${Math.round(fpsMeasure.fps)} FPS`;
     }
+  }
+
+  function ensureDeathOverlay() {
+    let overlay = document.getElementById('death-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'death-overlay';
+      Object.assign(overlay.style, {
+        position: 'absolute',
+        inset: '0',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '56px',
+        fontWeight: '900',
+        color: '#ff5252',
+        textShadow: '0 0 12px #000',
+        pointerEvents: 'none',
+        zIndex: '60',
+        background: 'rgba(0,0,0,0.45)'
+      });
+      const gameContainer = refs?.game?.canvas?.parentElement || document.body;
+      gameContainer.style.position = gameContainer.style.position || 'relative';
+      gameContainer.appendChild(overlay);
+    }
+    return overlay;
+  }
+
+  function updateDeathOverlay(text) {
+    const overlay = ensureDeathOverlay();
+    overlay.textContent = text;
+  }
+
+  function removeDeathOverlay() {
+    const existing = document.getElementById('death-overlay');
+    if (existing) existing.remove();
   }
 
   function updateCountdownOverlay(text) {
