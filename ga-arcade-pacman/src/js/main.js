@@ -16,6 +16,9 @@
     uiForms.applyDefaults(refs, window.defaultConfig || {});
     uiForms.bindFormValidation(refs);
     uiForms.validateParametersForm(refs);
+    if (window.audioManager) {
+      window.audioManager.loadAll().catch(() => {});
+    }
 
     uiControls.bindControls(refs, {
       onStart: handleStartTraining,
@@ -169,7 +172,15 @@
     }
     currentState = gameState.createInitialState();
     uiMetrics.updateStatusBadge('Demo', 'demo');
-    startRenderLoop();
+    showReadyLabel();
+    const startSeq = window.audioManager ? window.audioManager.playStartSequence() : Promise.resolve();
+    startSeq.finally(() => {
+      hideReadyLabel();
+      if (window.audioManager) {
+        window.audioManager.startGameplayLoops(currentState);
+      }
+      startRenderLoop();
+    });
   }
 
   function pauseDemoLoop() {
@@ -186,6 +197,9 @@
     if (renderLoopHandle) {
       cancelAnimationFrame(renderLoopHandle);
       renderLoopHandle = null;
+    }
+    if (window.audioManager) {
+      window.audioManager.resetAll();
     }
   }
 
@@ -259,6 +273,9 @@
     if (!currentState) return;
     const result = gameLogic.stepGame(currentState, action || gameConstants.ACTIONS.STAY);
     currentState = result.state;
+    if (window.audioManager) {
+      window.audioManager.handleStep(currentState, result.info || {});
+    }
     if (result.done) {
       const reason = result.state.status;
       if ((reason === 'life_lost' || reason === 'game_over') && result.state.lives <= 0) {
@@ -271,11 +288,21 @@
       }
       if (reason === 'life_lost' && result.state.lives > 0) {
         currentState = gameState.createInitialState({ lives: result.state.lives, level: result.state.level, score: result.state.score });
+        if (window.audioManager) window.audioManager.startGameplayLoops(currentState);
         render();
+        return;
+      }
+      if (reason === 'stalled' || reason === 'killed') {
+        // En demo mantenemos continuidad: limpiamos contadores de estancamiento y seguimos.
+        currentState.status = 'running';
+        currentState.stepsSinceLastPellet = 0;
+        currentState.stallCount = 0;
+        if (window.audioManager) window.audioManager.startGameplayLoops(currentState);
         return;
       }
       const nextLevel = reason === 'level_cleared' ? (result.state.level || 1) + 1 : (result.state.level || 1);
       currentState = gameState.createInitialState({ lives: result.state.lives, level: nextLevel, score: result.state.score });
+      if (window.audioManager) window.audioManager.startGameplayLoops(currentState);
       render();
     }
   }
@@ -299,7 +326,6 @@
   }
 
   function startRenderLoop() {
-    stopDemo();
     demoRunning = true;
     lastTimestamp = null;
     accumulatorMs = 0;
@@ -311,6 +337,36 @@
   function formatNumber(val) {
     if (val == null || Number.isNaN(val)) return '--';
     return Number(val).toFixed(2);
+  }
+
+  function showReadyLabel() {
+    const existing = document.getElementById('ready-overlay');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'ready-overlay';
+    Object.assign(overlay.style, {
+      position: 'absolute',
+      inset: '0',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: '48px',
+      fontWeight: '800',
+      color: '#ffc107',
+      textShadow: '0 0 10px #000',
+      pointerEvents: 'none',
+      zIndex: '50'
+    });
+    overlay.textContent = 'READY';
+    const gameContainer = refs?.game?.container || (refs?.game?.canvas?.parentElement);
+    const parent = gameContainer || document.body;
+    parent.style.position = parent.style.position || 'relative';
+    parent.appendChild(overlay);
+  }
+
+  function hideReadyLabel() {
+    const existing = document.getElementById('ready-overlay');
+    if (existing) existing.remove();
   }
 
   function formatTimestampForFile() {

@@ -51,6 +51,7 @@ describe('gameLogic', () => {
     const { state: next, done } = sandbox.gameLogic.stepGame(state, sandbox.gameConstants.ACTIONS.STAY);
     expect(next.status).toBe('stalled');
     expect(done).toBe(true);
+    expect(next.stallCount).toBeGreaterThanOrEqual(1);
   });
 
   it('termina por step_limit y expira power mode', () => {
@@ -62,5 +63,42 @@ describe('gameLogic', () => {
     expect(done).toBe(true);
     expect(next.powerTimer).toBe(0);
     expect(next.ghosts.every((g) => g.frightenedTimer === 0 && g.eatenThisPower === false)).toBe(true);
+  });
+
+  it('consume power pellet aunque el mapa llegue como strings (normaliza al escribir)', () => {
+    const C = sandbox.gameConstants;
+    const state = sandbox.gameState.createInitialState();
+    const rows = Array.from({ length: C.MAP_ROWS }, () => Array(C.MAP_COLS).fill(C.TILE_TYPES.WALL));
+    rows[1][1] = C.TILE_TYPES.POWER;
+    rows[2][1] = C.TILE_TYPES.PATH;
+    state.map = rows.map((r) => r.join('')); // fuerzas strings
+    state.ghosts = []; // evitar colisiones en mapa reducido
+    state.pacman.col = 1;
+    state.pacman.row = 2;
+    state.pelletsRemaining = 1;
+    state.initialPellets = 1;
+    const step1 = sandbox.gameLogic.stepGame(state, C.ACTIONS.UP);
+    expect(step1.state.map[1][1]).toBe(C.TILE_TYPES.PATH);
+    expect(step1.state.pelletsRemaining).toBe(0);
+    expect(step1.state.powerTimer).toBeGreaterThan(0);
+  });
+
+  it('si la acci�n propuesta es contra muro, mantiene la direcci�n previa v�lida', () => {
+    const C = sandbox.gameConstants;
+    const state = sandbox.gameState.createInitialState();
+    const rows = Array.from({ length: C.MAP_ROWS }, () => Array(C.MAP_COLS).fill(C.TILE_TYPES.WALL));
+    rows[1][1] = C.TILE_TYPES.PATH;
+    rows[1][2] = C.TILE_TYPES.PATH;
+    rows[1][3] = C.TILE_TYPES.PATH;
+    state.map = rows;
+    state.ghosts = [];
+    state.pacman.col = 1;
+    state.pacman.row = 1;
+    state.lastAction = C.ACTIONS.RIGHT;
+    const step1 = sandbox.gameLogic.stepGame(state, C.ACTIONS.RIGHT);
+    expect(step1.state.pacman.col).toBe(2);
+    // Ahora proponemos mover hacia arriba (muro); debe seguir hacia la derecha.
+    const step2 = sandbox.gameLogic.stepGame(step1.state, C.ACTIONS.UP);
+    expect(step2.state.pacman.col).toBe(3);
   });
 });

@@ -23,21 +23,25 @@
    * - gamma: factor de descuento opcional (no aplicado a la recompensa base, reservado para ajustes futuros).
    * - baseSeed: semilla base para reproducibilidad de Math.random durante cada episodio.
    * - episodeSeeds: lista opcional de semillas por episodio; si existe se usa en lugar de derivar desde baseSeed.
+   * - stepPenalty: factor para castigar duraci�n (fitness -= stepPenalty * steps).
+   * - stallPenalty: penalizaci�n adicional por cada activaci�n de STALL.
    */
   const defaultFitnessConfig = {
     episodesPerIndividual: 5,
-    maxStepsPerEpisode: 3500,
+    maxStepsPerEpisode: 1200,
     gamma: 1,
     baseSeed: 12345,
     episodeSeeds: null,
     baseLevel: 1,
     curriculumGrowth: 0.15, // subir de nivel de forma gradual; converge al rango 1-6
     maxCurriculumLevel: 6,
-    completionBonus: 3000,
+    completionBonus: 5000,
+    lifeLossPenalty: 500,
+    noLifeLossBonus: 2500,
     generationOffset: 0,
-    robustMode: true,
-    robustLevels: [1, 2, 3],
-    disableCompletionBonus: false
+    disableCompletionBonus: false,
+    stepPenalty: 0,
+    stallPenalty: 100
   };
 
   /**
@@ -56,10 +60,12 @@
       curriculumGrowth: cfg.curriculumGrowth ?? defaultFitnessConfig.curriculumGrowth,
       maxCurriculumLevel: cfg.maxCurriculumLevel ?? defaultFitnessConfig.maxCurriculumLevel,
       completionBonus: cfg.completionBonus ?? defaultFitnessConfig.completionBonus,
+      lifeLossPenalty: cfg.lifeLossPenalty ?? defaultFitnessConfig.lifeLossPenalty,
+      noLifeLossBonus: cfg.noLifeLossBonus ?? defaultFitnessConfig.noLifeLossBonus,
       generationOffset: cfg.generationOffset ?? defaultFitnessConfig.generationOffset,
-      robustMode: cfg.robustMode ?? defaultFitnessConfig.robustMode,
-      robustLevels: Array.isArray(cfg.robustLevels) ? cfg.robustLevels : defaultFitnessConfig.robustLevels,
-      disableCompletionBonus: cfg.disableCompletionBonus ?? defaultFitnessConfig.disableCompletionBonus
+      disableCompletionBonus: cfg.disableCompletionBonus ?? defaultFitnessConfig.disableCompletionBonus,
+      stepPenalty: cfg.stepPenalty ?? defaultFitnessConfig.stepPenalty,
+      stallPenalty: cfg.stallPenalty ?? defaultFitnessConfig.stallPenalty
     };
   }
 
@@ -83,15 +89,31 @@
     }));
 
     const finalState = result.finalState;
-    let totalReward = result.totalReward;
+    let totalReward = finalState.score || 0; // base: score visible
     if (!fitnessConfig.disableCompletionBonus && finalState.status === 'level_cleared') {
       totalReward += fitnessConfig.completionBonus || 0;
+    }
+    const lifeLosses = finalState.lifeLossCount || 0;
+    if (lifeLosses > 0 && fitnessConfig.lifeLossPenalty) {
+      totalReward -= fitnessConfig.lifeLossPenalty * lifeLosses;
+    }
+    if (finalState.status === 'level_cleared' && lifeLosses === 0 && fitnessConfig.noLifeLossBonus) {
+      totalReward += fitnessConfig.noLifeLossBonus;
+    }
+    const stepPenalty = fitnessConfig.stepPenalty || 0;
+    if (stepPenalty) {
+      totalReward -= stepPenalty * (result.steps || 0);
+    }
+    const stallPenalty = fitnessConfig.stallPenalty || 0;
+    if (stallPenalty && finalState.stallCount) {
+      totalReward -= stallPenalty * finalState.stallCount;
     }
     return {
       reward: totalReward,
       steps: result.steps,
       finalState,
-      status: finalState.status
+      status: finalState.status,
+      lifeLosses
     };
   }
 
@@ -116,12 +138,6 @@
     for (let i = 0; i < cfg.episodesPerIndividual; i += 1) {
       const seed = getEpisodeSeed(cfg, i);
       evalOnce(seed, null);
-      if (cfg.robustMode && Array.isArray(cfg.robustLevels)) {
-        cfg.robustLevels.forEach((lvl, idx) => {
-          const robustSeed = (seed + (idx + 1) * 10007) >>> 0;
-          evalOnce(robustSeed, lvl);
-        });
-      }
     }
 
     const fitness = mean(rewards);
