@@ -1,0 +1,15 @@
+{
+  "name": "ga-arcade-pacman",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^1.6.1",
+    "jsdom": "^23.0.0",
+    "vitest": "^1.2.0"
+  }
+}

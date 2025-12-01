@@ -70,7 +70,7 @@
     gaController.initializeFromUI(uiConfig);
     uiMetrics.updateStatusBadge('Entrenando', 'training');
     uiMetrics.renderFitnessGraph(refs, [], []);
-    gaController.start(onGenerationUpdate, onTrainingFinished);
+    gaController.start(onGenerationUpdate, onTrainingFinished, onTrainingProgress);
   }
 
   function handlePauseResume() {
@@ -126,6 +126,7 @@
   }
 
   function onGenerationUpdate(info) {
+    uiMetrics.updateStatusBadge('Entrenando', 'training');
     const best = formatNumber(info.bestFitness);
     const avg = formatNumber(info.averageFitness);
     const genLabel = `${info.generation}/${gaController.getStatus().maxGenerations || info.generation}`;
@@ -146,6 +147,13 @@
     uiMetrics.updateStatusBadge('Terminado', 'training');
     if (summary?.history) {
       uiMetrics.renderFitnessGraph(refs, summary.history.bestFitness, summary.history.avgFitness);
+    }
+  }
+
+  function onTrainingProgress(progress) {
+    if (!progress) return;
+    if (progress.stage === 'evaluation') {
+      uiMetrics.updateStatusBadge('Evaluando', 'training');
     }
   }
 

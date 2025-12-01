@@ -22,8 +22,14 @@
     status: 'idle', // idle | running | paused | finished
     maxGenerations: 0,
     loopHandle: null,
-    callbacks: { onGeneration: null, onFinish: null },
-    timing: { totalMs: 0, perGen: [] }
+    callbacks: { onGeneration: null, onFinish: null, onProgress: null },
+    timing: { totalMs: 0, perGen: [] },
+    workerPool: null,
+    workerOptions: {
+      enabled: true,
+      size: null,
+      chunkSize: 12
+    }
   };
 
   /**
@@ -55,6 +61,7 @@
     runState.maxGenerations = gaConfig.generations;
     runState.timing = { totalMs: 0, perGen: [] };
     clearLoop();
+    ensureWorkerPool();
     return { gaConfig, fitnessConfig };
   }
 
@@ -63,12 +70,12 @@
    * @param {Function} onGeneration callback por generación.
    * @param {Function} onFinish callback al terminar todas las generaciones.
    */
-  function start(onGeneration, onFinish) {
+  function start(onGeneration, onFinish, onProgress) {
     if (!runState.gaState) {
       console.warn('gaController: inicializa antes de iniciar el GA');
       return;
     }
-    runState.callbacks = { onGeneration, onFinish };
+    runState.callbacks = { onGeneration, onFinish, onProgress };
     runState.status = 'running';
     scheduleLoop();
   }
@@ -120,17 +127,80 @@
     };
   }
 
+  function ensureWorkerPool() {
+    if (!runState.workerOptions.enabled) return null;
+    if (runState.workerPool) return runState.workerPool;
+    if (!window.gaWorkerPool || !gaWorkerPool.createWorkerPool) return null;
+    runState.workerPool = gaWorkerPool.createWorkerPool({
+      size: runState.workerOptions.size || undefined,
+      chunkSize: runState.workerOptions.chunkSize
+    });
+    return runState.workerPool;
+  }
+
+  async function evaluatePopulationWithWorkers(gaState) {
+    const pool = ensureWorkerPool();
+    if (!pool || !pool.evaluateChromosomes) {
+      throw new Error('gaController: pool de workers no disponible');
+    }
+    const tasks = [];
+    const baseCfg = gaState.config?.fitnessConfig || {};
+    const generation = gaState.generation;
+    gaState.population.forEach((ind, idx) => {
+      if (ind.fitness != null) return;
+      const seeded = GA.seedFitnessConfig
+        ? GA.seedFitnessConfig(baseCfg, generation, idx)
+        : seedFitnessConfigFallback(baseCfg, generation, idx);
+      tasks.push({
+        index: idx,
+        chromosome: ind.chromosome,
+        fitnessConfig: seeded
+      });
+    });
+    if (!tasks.length) return;
+    notifyProgress({ stage: 'evaluation', completed: 0, total: tasks.length, generation });
+    const results = await pool.evaluateChromosomes(tasks, {
+      generation,
+      chunkSize: runState.workerOptions.chunkSize
+    });
+    results.forEach((res) => {
+      const target = gaState.population[res.index];
+      if (target) {
+        target.fitness = res.fitness;
+        target.evalStats = res.evalStats;
+      }
+    });
+    notifyProgress({ stage: 'evaluation', completed: tasks.length, total: tasks.length, generation });
+  }
+
   /** Ejecuta una sola generación; se usa internamente por el loop. */
-  function tickGeneration() {
+  async function tickGeneration() {
     if (!runState.gaState || runState.status !== 'running') return;
     if (runState.gaState.generation >= runState.maxGenerations) {
       finish();
       return;
     }
 
-    const t0 = performance.now ? performance.now() : Date.now();
-    const { best, avg } = GA.runGeneration(runState.gaState);
-    const t1 = performance.now ? performance.now() : Date.now();
+    const t0 = nowMs();
+    let best;
+    let avg;
+
+    const useWorkers = runState.workerOptions.enabled && !!runState.workerPool;
+    if (useWorkers) {
+      try {
+        await evaluatePopulationWithWorkers(runState.gaState);
+        if (runState.status !== 'running') return;
+        ({ best, avg } = GA.runGeneration(runState.gaState, { skipEvaluation: true }));
+      } catch (err) {
+        console.warn('gaController: fallo en workers, se continua en hilo principal', err);
+        runState.workerOptions.enabled = false;
+        ({ best, avg } = GA.runGeneration(runState.gaState));
+      }
+    } else {
+      ({ best, avg } = GA.runGeneration(runState.gaState));
+    }
+
+    const t1 = nowMs();
     const duration = t1 - t0;
     runState.timing.totalMs += duration;
     runState.timing.perGen.push(duration);
@@ -151,8 +221,27 @@
 
     if (runState.gaState.generation >= runState.maxGenerations) {
       finish();
-    } else {
+    } else if (runState.status === 'running') {
       scheduleLoop();
+    }
+  }
+
+  function seedFitnessConfigFallback(baseCfg, generation, index) {
+    const seedOffset = generation * 100000 + index * 9973;
+    return {
+      ...baseCfg,
+      baseSeed: ((baseCfg.baseSeed || 0) + seedOffset) >>> 0,
+      generationOffset: generation
+    };
+  }
+
+  function nowMs() {
+    return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+  }
+
+  function notifyProgress(payload) {
+    if (runState.callbacks.onProgress) {
+      runState.callbacks.onProgress(payload);
     }
   }
 

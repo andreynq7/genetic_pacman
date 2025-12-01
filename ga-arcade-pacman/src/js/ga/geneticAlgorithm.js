@@ -151,11 +151,28 @@
       }
     });
 
-    gaState.bestEver = best;
     const avg = sum / gaState.population.length;
-    const perf = computePerformanceSnapshot(gaState, best, avg);
-    gaState.lastMetrics = perf;
-    pushWithLimit(gaState.metricsHistory, perf);
+    finalizeEvaluationMetrics(gaState, best, avg);
+    return { best, avg };
+  }
+
+  /**
+   * Reutiliza fitness ya calculado para registrar metricas y continuar con el pipeline.
+   * @param {Object} gaState
+   * @returns {{best:Object, avg:number}}
+   */
+  function summarizeEvaluatedPopulation(gaState) {
+    let best = gaState.bestEver;
+    let sum = 0;
+    gaState.population.forEach((ind) => {
+      if (ind.fitness == null) return;
+      sum += ind.fitness;
+      if (!best || ind.fitness > best.fitness) {
+        best = { ...ind, id: ind.id, generation: gaState.generation };
+      }
+    });
+    const avg = sum / gaState.population.length;
+    finalizeEvaluationMetrics(gaState, best, avg);
     return { best, avg };
   }
 
@@ -164,9 +181,11 @@
    * @param {Object} gaState
    * @returns {{best:Object, avg:number}}
    */
-  function runGeneration(gaState) {
+  function runGeneration(gaState, options = {}) {
     const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    const { best, avg } = evaluatePopulation(gaState);
+    const { best, avg } = options.skipEvaluation
+      ? summarizeEvaluatedPopulation(gaState)
+      : evaluatePopulation(gaState);
     const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     maybeAutoTuneParameters(gaState);
     pushWithLimit(gaState.history.bestFitness, best.fitness);
@@ -179,6 +198,13 @@
     gaState.population = nextPop;
     gaState.generation += 1;
     return { best, avg };
+  }
+
+  function finalizeEvaluationMetrics(gaState, best, avg) {
+    gaState.bestEver = best;
+    const perf = computePerformanceSnapshot(gaState, best, avg);
+    gaState.lastMetrics = perf;
+    pushWithLimit(gaState.metricsHistory, perf);
   }
 
   /**
@@ -492,6 +518,8 @@
     evaluatePopulation,
     runGeneration,
     runGenerations,
+    summarizeEvaluatedPopulation,
+    seedFitnessConfig,
     getBestIndividual,
     getHistory
   };
