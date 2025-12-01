@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Estado y utilidades para el entorno de Pac-Man basado en celdas.
  * No depende del render; todo se define sobre el grid y el mapa.
  */
@@ -12,7 +12,7 @@
   }
 
   function cloneActors(list) {
-    return list.map((g) => ({ ...g }));
+    return list.map((g) => ({ ...g, fx: g.fx ? { ...g.fx } : undefined }));
   }
 
   /**
@@ -149,13 +149,23 @@
       ghostSpawnPoints: ghostSpawns.map((p) => ({ ...p })),
       ghostContainerCells,
       ghostPen: [],
+      mapDirty: true,
       pacman: {
         col: pacSpawn.col,
         row: pacSpawn.row,
         prevCol: pacSpawn.col,
         prevRow: pacSpawn.row,
         dir: C.ACTIONS.LEFT,
-        alive: true
+        alive: true,
+        fx: {
+          x: pacSpawn.col * C.TILE_SIZE + C.TILE_SIZE / 2,
+          y: pacSpawn.row * C.TILE_SIZE + C.TILE_SIZE / 2,
+          vx: 0,
+          vy: 0,
+          ax: 0,
+          ay: 0,
+          size: C.TILE_SIZE
+        }
       },
       ghostSpawnIntervalSteps: options.ghostSpawnIntervalSteps || C.GHOST_SPAWN_INTERVAL_STEPS || 1,
       nextGhostSpawnSteps: 0,
@@ -199,7 +209,16 @@
         mode: (C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || C.GHOST_MODES?.SCATTER || 'SCATTER',
         speed: 1,
         cornerCol: (C.GHOST_CORNERS?.[color]?.col) ?? pos.col,
-        cornerRow: (C.GHOST_CORNERS?.[color]?.row) ?? pos.row
+        cornerRow: (C.GHOST_CORNERS?.[color]?.row) ?? pos.row,
+        fx: {
+          x: penPos.col * C.TILE_SIZE + C.TILE_SIZE / 2,
+          y: penPos.row * C.TILE_SIZE + C.TILE_SIZE / 2,
+          vx: 0,
+          vy: 0,
+          ax: 0,
+          ay: 0,
+          size: C.TILE_SIZE
+        }
       });
     }
 
@@ -296,7 +315,7 @@
       pacmanSpawn: state.pacmanSpawn ? { ...state.pacmanSpawn } : null,
       respawnTimerSteps: state.respawnTimerSteps ?? 0,
       ghostSpawnPoints: state.ghostSpawnPoints ? state.ghostSpawnPoints.map((p) => ({ ...p })) : null,
-      ghosts: state.ghosts.map((g) => ({ ...g }))
+      ghosts: state.ghosts.map((g) => ({ ...g, fx: g.fx ? { ...g.fx } : undefined }))
     };
   }
 

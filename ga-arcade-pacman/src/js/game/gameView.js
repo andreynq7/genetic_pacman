@@ -72,6 +72,9 @@
   const defaultGhostSprite = getDefaultGhostSprite(ghostSprites);
 
   let cachedCtx = null;
+  let mapBufferCanvas = null;
+  let mapBufferCtx = null;
+  let mapBufferDims = null;
 
   function initGameView(canvasOrRef) {
     const canvas = resolveCanvas(canvasOrRef);
@@ -176,7 +179,7 @@
     const pac = state.pacman;
     if (pac) {
       const sprite = getPacmanSprite(pac, state?.steps || 0);
-      const { x, y } = gridToPixelLerped(pac.prevCol ?? pac.col, pac.prevRow ?? pac.row, pac.col, pac.row, alpha);
+      const { x, y } = actorPixelTopLeft(pac, alpha);
       if (sprite?.ready) {
         ctx.drawImage(sprite.img, x, y, TILE_SIZE, TILE_SIZE);
       } else {
@@ -192,8 +195,11 @@
     const renderGhosts = collectRenderableGhosts(state);
     if (renderGhosts.length) {
       renderGhosts.forEach((ghost, idx) => {
-        const { x, y } = gridToPixelLerpedSafe(ghost.prevCol, ghost.prevRow, ghost.col, ghost.row, alpha);
+        const { x, y } = actorPixelTopLeft(ghost, alpha);
         const stepCount = state?.steps || 0;
+        if (window.debugGhostRenderVerbose) {
+          console.log('[ghost-render] pos', { id: ghost.id, prev: { c: ghost.prevCol, r: ghost.prevRow }, cur: { c: ghost.col, r: ghost.row }, x, y, alpha, step: stepCount });
+        }
         if (ghost.eyeState) {
           drawGhostEyes(ctx, ghost, x, y, stepCount);
           return;
@@ -221,7 +227,24 @@
   function renderFrame(ctx, state, alpha = 1) {
     if (!ctx) return;
     if (state?.map) {
-      drawLevelMatrix(ctx, state.map);
+      const dims = getMapDimensions();
+      if (!mapBufferCanvas || !mapBufferCtx || !mapBufferDims
+        || mapBufferDims.widthPx !== dims.widthPx || mapBufferDims.heightPx !== dims.heightPx) {
+        mapBufferCanvas = document.createElement('canvas');
+        mapBufferCanvas.width = dims.widthPx;
+        mapBufferCanvas.height = dims.heightPx;
+        mapBufferCtx = mapBufferCanvas.getContext('2d');
+        if (mapBufferCtx && typeof mapBufferCtx.imageSmoothingEnabled === 'boolean') {
+          mapBufferCtx.imageSmoothingEnabled = false;
+        }
+        mapBufferDims = { ...dims };
+        state.mapDirty = true;
+      }
+      if (state.mapDirty || !mapBufferCanvas) {
+        drawLevelMatrix(mapBufferCtx, state.map);
+        state.mapDirty = false;
+      }
+      ctx.drawImage(mapBufferCanvas, 0, 0);
     } else {
       drawLevel(ctx);
     }
@@ -247,9 +270,12 @@
   }
 
   function gridToPixelLerped(prevCol, prevRow, col, row, alpha) {
+    const clamp = (t) => Math.max(0, Math.min(1, t));
+    const smooth = (t) => { const u = clamp(t); return u * u * (3 - 2 * u); };
     const lerp = (a, b, t) => a + (b - a) * t;
-    const c = lerp(prevCol, col, Math.max(0, Math.min(1, alpha)));
-    const r = lerp(prevRow, row, Math.max(0, Math.min(1, alpha)));
+    const t = smooth(alpha);
+    const c = lerp(prevCol, col, t);
+    const r = lerp(prevRow, row, t);
     return { x: c * TILE_SIZE, y: r * TILE_SIZE };
   }
 
@@ -261,7 +287,21 @@
     if (!validPrev || !adjacent) {
       return gridToPixel(col, row);
     }
-    return gridToPixelLerped(prevCol, prevRow, col, row, alpha);
+    const pos = gridToPixelLerped(prevCol, prevRow, col, row, alpha);
+    if (window.debugGhostRenderVerbose || (window.debugGhostRender && ((window.performance?.now?.() || Date.now()) % 500 < 16))) {
+      console.log('[ghost-render] lerp', { from: { c: prevCol, r: prevRow }, to: { c: col, r: row }, alpha });
+    }
+    return pos;
+  }
+
+  function actorPixelTopLeft(actor, alpha) {
+    const dt = (window.gameConstants?.TIMING?.stepDurationMs || STEP_MS) * Math.max(0, Math.min(1, alpha));
+    if (actor?.fx) {
+      const cx = actor.fx.x + actor.fx.vx * dt;
+      const cy = actor.fx.y + actor.fx.vy * dt;
+      return { x: cx - TILE_SIZE / 2, y: cy - TILE_SIZE / 2 };
+    }
+    return gridToPixelLerpedSafe(actor.prevCol, actor.prevRow, actor.col, actor.row, alpha);
   }
 
   function pixelToGrid(x, y) {
