@@ -11,10 +11,6 @@
   const STEP_MS = (C?.TIMING?.stepDurationMs) || 100;
   const RESPAWN_WAIT_STEPS = Math.max(1, C.GHOST_RESPAWN_STEPS || Math.round(((C.TIMING?.ghostRespawnMs) || 3000) / STEP_MS));
 
-  function cloneActors(list) {
-    return (list || []).map((g) => ({ ...g }));
-  }
-
   /**
    * Ejecuta un paso de simulación discreto.
    * Nota: la acción propuesta puede ser anulada en modo power para perseguir
@@ -53,7 +49,6 @@
     const effectiveAction = chooseActionWithOverrides(next, action);
 
     applyPacmanMove(next, effectiveAction);
-    updatePhysicsForActor(next.pacman);
     reward += handleConsumables(next, events);
     const stallSteps = next.stepsSinceLastPellet;
     reward += applyStallPenalty(next);
@@ -74,7 +69,6 @@
     reward += handleCollisions(next, { checkBeforeGhosts: true }, events);
     if (next.status === 'running') {
       moveGhosts(next, events);
-      next.ghosts.forEach(updatePhysicsForActor);
       reward += handleCollisions(next, {}, events);
     }
 
@@ -221,7 +215,6 @@
       state.pelletsRemaining -= 1;
       state.score += C.REWARDS.pellet;
       reward += C.REWARDS.pellet;
-      state.mapDirty = true;
       state.stepsSinceLastPellet = 0;
       invalidatePowerPathCache();
       STATE.captureLevelSnapshot(state);
@@ -231,7 +224,6 @@
       state.pelletsRemaining -= 1;
       state.score += C.REWARDS.powerPellet;
       reward += C.REWARDS.powerPellet;
-      state.mapDirty = true;
       state.stepsSinceLastPellet = 0;
       setGhostsFrightened(state);
       invalidatePowerPathCache();
@@ -291,30 +283,10 @@
     const pacRow = state.pacman.row;
     const frightened = state.powerTimer > 0;
 
-    const usePhysics = !!(state.pacman?.fx);
-    const ts = C.TILE_SIZE;
-    const half = ts * 0.45;
-    const dt = C.TIMING.stepDurationMs || 100;
-
-    const getBounds = (actor) => {
-      if (usePhysics && actor?.fx) {
-        const cx = actor.fx.x + actor.fx.vx * dt;
-        const cy = actor.fx.y + actor.fx.vy * dt;
-        return { l: cx - half, t: cy - half, r: cx + half, b: cy + half };
-      }
-      const cx = actor.col * ts + ts / 2;
-      const cy = actor.row * ts + ts / 2;
-      return { l: cx - half, t: cy - half, r: cx + half, b: cy + half };
-    };
-
-    const intersects = (a, b) => !(a.r < b.l || a.l > b.r || a.b < b.t || a.t > b.b);
-
-    const pacBounds = getBounds(state.pacman);
     for (let i = 0; i < state.ghosts.length; i += 1) {
       const ghost = state.ghosts[i];
       if (ghost.returningToHome || ghost.waitingToRespawn || ghost.eyeState) continue;
-      const hit = intersects(getBounds(ghost), pacBounds);
-      if (hit) {
+      if (ghost.col === pacCol && ghost.row === pacRow) {
         const ghostEdible = (frightened || ghost.frightenedTimer > 0) && !ghost.eatenThisPower;
         if (ghostEdible) {
           reward += C.REWARDS.ghostEaten;
@@ -390,20 +362,12 @@
           ghost.col = nextStep.col;
           ghost.row = nextStep.row;
           ghost.dir = directionFromStep({ col: ghost.prevCol, row: ghost.prevRow }, nextStep) || ghost.dir;
-          ghost.lastMoveStep = state.steps || 0;
-          if (window.debugGhostLogic && (window.debugGhostLogicVerbose || ((state.steps || 0) % 10 === 0))) {
-            console.log('[ghost-logic] return move', { id: ghost.id, from: { c: ghost.prevCol, r: ghost.prevRow }, to: { c: ghost.col, r: ghost.row }, dir: ghost.dir });
-          }
         } else if (ghost.col !== home.col || ghost.row !== home.row) {
           ghost.prevCol = ghost.col;
           ghost.prevRow = ghost.row;
           ghost.col = home.col;
           ghost.row = home.row;
           ghost.dir = C.ACTIONS.LEFT;
-          ghost.lastMoveStep = state.steps || 0;
-          if (window.debugGhostLogic && (window.debugGhostLogicVerbose || ((state.steps || 0) % 10 === 0))) {
-            console.log('[ghost-logic] snap home', { id: ghost.id, to: { c: ghost.col, r: ghost.row } });
-          }
         }
         if (ghost.col === home.col && ghost.row === home.row) {
           startGhostRespawnWait(state, ghost, events);
@@ -458,10 +422,6 @@
       ghost.row = nextCell.row;
       const newDir = directionFromStep({ col: ghost.prevCol, row: ghost.prevRow }, nextCell);
       if (newDir) ghost.dir = newDir;
-      ghost.lastMoveStep = state.steps || 0;
-      if (window.debugGhostLogic && (window.debugGhostLogicVerbose || ((state.steps || 0) % 10 === 0))) {
-        console.log('[ghost-logic] move', { id: ghost.id, from: { c: ghost.prevCol, r: ghost.prevRow }, to: { c: ghost.col, r: ghost.row }, dir: ghost.dir, fright: ghost.frightenedTimer, speed: ghost.speedFactor });
-      }
 
       if (ghost.frightenedTimer > 0) ghost.frightenedTimer -= 1;
     });
@@ -501,22 +461,6 @@
       return true;
     }
     return false;
-  }
-
-  function updatePhysicsForActor(actor) {
-    if (!actor) return;
-    const ts = C.TILE_SIZE;
-    const dt = C.TIMING.stepDurationMs || 100;
-    const prevX = (actor.prevCol ?? actor.col) * ts + ts / 2;
-    const prevY = (actor.prevRow ?? actor.row) * ts + ts / 2;
-    const curX = actor.col * ts + ts / 2;
-    const curY = actor.row * ts + ts / 2;
-    actor.fx = actor.fx || { x: curX, y: curY, vx: 0, vy: 0, ax: 0, ay: 0, size: ts };
-    actor.fx.x = prevX;
-    actor.fx.y = prevY;
-    actor.fx.vx = (curX - prevX) / dt;
-    actor.fx.vy = (curY - prevY) / dt;
-    actor.fx.size = ts;
   }
 
   function updateGhostSpawns(state, events) {
@@ -633,10 +577,6 @@
       const dir = directionFromStep({ col: ghost.prevCol, row: ghost.prevRow }, target);
       ghost.dir = target.action || dir || ghost.dir;
       ghost.state = 'PEN';
-      ghost.lastMoveStep = state.steps || 0;
-      if (window.debugGhostLogic && (window.debugGhostLogicVerbose || ((state.steps || 0) % 10 === 0))) {
-        console.log('[ghost-logic] pen wander', { id: ghost.id, to: { c: ghost.col, r: ghost.row } });
-      }
     }
     return false;
   }
@@ -660,10 +600,6 @@
     const dir = directionFromStep({ col: ghost.prevCol, row: ghost.prevRow }, nextPos);
     ghost.dir = dir || ghost.dir;
     ghost.penExitStep = nextIdx;
-    ghost.lastMoveStep = state.steps || 0;
-    if (window.debugGhostLogic && (window.debugGhostLogicVerbose || ((state.steps || 0) % 10 === 0))) {
-      console.log('[ghost-logic] pen exit', { id: ghost.id, to: { c: ghost.col, r: ghost.row }, step: ghost.penExitStep });
-    }
     const outsideContainer = !containerKeys.has(key(ghost.col, ghost.row));
     const atGate = getTile(state.map, ghost.col, ghost.row) === T.GHOST_GATE;
     return outsideContainer && !atGate;
@@ -1182,6 +1118,11 @@
     return list[list.length - 1];
   }
 
+  function cloneActorsLocal(list) {
+    const arr = Array.isArray(list) ? list : [];
+    return arr.map((g) => ({ ...g }));
+  }
+
   function ghostChaseProbability(level) {
     const base = C.DIFFICULTY?.ghostChaseBase ?? 0;
     const growth = C.DIFFICULTY?.ghostChaseGrowth ?? 0;
@@ -1204,20 +1145,6 @@
     if (!state.levelSnapshot) {
       STATE.captureLevelSnapshot(state);
     }
-
-    const preserved = {
-      score: state.score,
-      lives: state.lives,
-      level: state.level,
-      lifeLossCount: state.lifeLossCount || 0,
-      scoreInicialNivel: state.scoreInicialNivel,
-      pelletsRemaining: state.pelletsRemaining,
-      initialPellets: state.initialPellets,
-      pelletMilestoneAwarded: state.pelletMilestoneAwarded,
-      stepsSinceLastPellet: state.stepsSinceLastPellet,
-      steps: state.steps
-    };
-
     STATE.restoreLevelSnapshot(state);
     const palette = ['red', 'pink', 'blue', 'orange'];
     const pacSpawn = state.pacmanSpawn || C.DEFAULTS.pacmanSpawn;
@@ -1243,71 +1170,50 @@
         ? state.levelSnapshot.ghostSpawnPoints
         : C.DEFAULTS.ghostSpawns);
 
-    const buildGhost = (template, idx, spawnOverride) => {
-      const spawn = spawnOverride || spawnPoints[idx % spawnPoints.length] || spawnPoints[0];
-      const color = template.color || template.originalColor || palette[idx % palette.length];
-      const homeCol = template.homeCol ?? spawn.col;
-      const homeRow = template.homeRow ?? spawn.row;
-      return {
-        id: template.id || `ghost-${idx + 1}`,
-        color,
-        originalColor: template.originalColor || color,
-        col: spawn.col,
-        row: spawn.row,
-        prevCol: spawn.col,
-        prevRow: spawn.row,
-        dir: C.ACTIONS.LEFT,
-        frightenedTimer: 0,
-        frightenedWarning: false,
-        state: 'NORMAL',
-        speedFactor: 1,
-        moveAccumulator: 0,
-        frightenedSpeedTarget: 1,
-        leavingPen: false,
-        penExitPath: null,
-        penExitStep: 0,
-        eatenThisPower: false,
-        returningToHome: false,
-        waitingToRespawn: false,
-        respawnReleaseStep: null,
-        eyeBlinkStartStep: state.steps || 0,
-        eyeState: false,
-        homeCol,
-        homeRow,
-        mode: state.ghostMode ?? ((C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || (C.GHOST_MODES?.SCATTER) || 'SCATTER'),
-        speed: 1,
-        cornerCol: (C.GHOST_CORNERS?.[color]?.col) ?? homeCol,
-        cornerRow: (C.GHOST_CORNERS?.[color]?.row) ?? homeRow
-      };
-    };
-
     if (penTemplates && penTemplates.length) {
-      state.ghostPen = penTemplates.map((template, idx) => {
-        const spawn = { col: template.col ?? spawnPoints[idx % spawnPoints.length]?.col ?? template.homeCol ?? template.col, row: template.row ?? spawnPoints[idx % spawnPoints.length]?.row ?? template.homeRow ?? template.row };
-        const base = buildGhost(template, idx, spawn);
+      state.ghostPen = cloneActorsLocal(penTemplates);
+      const penMap = new Map(state.ghostPen.map((g) => [g.id, g]));
+      state.pendingGhosts = pendingTemplates.map((g) => penMap.get(g.id) || { ...g });
+      state.ghosts = cloneActorsLocal(state.levelSnapshot?.ghosts || []);
+    } else {
+      state.ghosts = ghostTemplates.map((template, idx) => {
+        const spawn = spawnPoints[idx % spawnPoints.length] || spawnPoints[0];
+        const color = template.color || template.originalColor || palette[idx % palette.length];
+        const homeCol = template.homeCol ?? spawn.col;
+        const homeRow = template.homeRow ?? spawn.row;
         return {
-          ...base,
-          state: 'PEN',
+          id: template.id || `ghost-${idx + 1}`,
+          color,
+          originalColor: template.originalColor || color,
+          col: spawn.col,
+          row: spawn.row,
+          prevCol: spawn.col,
+          prevRow: spawn.row,
+          dir: C.ACTIONS.LEFT,
+          frightenedTimer: 0,
+          frightenedWarning: false,
+          state: 'NORMAL',
+          speedFactor: 1,
+          moveAccumulator: 0,
+          frightenedSpeedTarget: 1,
           leavingPen: false,
           penExitPath: null,
           penExitStep: 0,
-          waitingToRespawn: false,
+          eatenThisPower: false,
           returningToHome: false,
+          waitingToRespawn: false,
+          respawnReleaseStep: null,
+          eyeBlinkStartStep: state.steps || 0,
           eyeState: false,
-          frightenedTimer: 0,
-          frightenedWarning: false
+          homeCol,
+          homeRow,
+          mode: state.ghostMode ?? ((C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || (C.GHOST_MODES?.SCATTER) || 'SCATTER'),
+          speed: 1,
+          cornerCol: (C.GHOST_CORNERS?.[color]?.col) ?? homeCol,
+          cornerRow: (C.GHOST_CORNERS?.[color]?.row) ?? homeRow
         };
       });
-      const penMap = new Map(state.ghostPen.map((g) => [g.id, g]));
-      state.pendingGhosts = pendingTemplates.map((g, idx) => {
-        const penClone = penMap.get(g.id);
-        if (penClone) return { ...penClone, state: 'PEN' };
-        return buildGhost(g, idx, { col: g.col, row: g.row });
-      });
-      state.ghosts = ghostTemplates.map((template, idx) => buildGhost(template, idx));
-    } else {
-      state.ghosts = ghostTemplates.map((template, idx) => buildGhost(template, idx));
-      state.pendingGhosts = pendingTemplates.map((g, idx) => buildGhost(g, idx, { col: g.col, row: g.row }));
+      state.pendingGhosts = pendingTemplates.map((g) => ({ ...g }));
       state.ghostPen = [];
     }
     state.ghostSpawnIntervalSteps = state.ghostSpawnIntervalSteps ?? (C.GHOST_SPAWN_INTERVAL_STEPS || 1);
@@ -1322,23 +1228,17 @@
     state.stepsSinceLastPellet = state.levelSnapshot?.stepsSinceLastPellet ?? 0;
     state.pelletMilestoneAwarded = state.levelSnapshot?.pelletMilestoneAwarded ?? false;
     state.lastAction = state.levelSnapshot?.lastAction ?? state.lastAction;
-    state.score = preserved.score;
-    state.lives = preserved.lives;
-    state.level = preserved.level;
-    state.lifeLossCount = preserved.lifeLossCount;
-    state.scoreInicialNivel = preserved.scoreInicialNivel ?? state.scoreInicialNivel;
-    state.initialPellets = preserved.initialPellets ?? state.initialPellets;
-    state.pelletsRemaining = preserved.pelletsRemaining ?? state.pelletsRemaining;
-    state.pelletMilestoneAwarded = preserved.pelletMilestoneAwarded ?? state.pelletMilestoneAwarded;
-    state.stepsSinceLastPellet = preserved.stepsSinceLastPellet ?? state.stepsSinceLastPellet;
-    state.steps = preserved.steps ?? state.steps;
-    state.lifeLostThisStep = false;
-    state.mapDirty = true;
-    STATE.captureLevelSnapshot(state);
     invalidatePowerPathCache();
   }
 
-
+  function powerDurationForLevel(level) {
+    const base = C.DEFAULTS.powerDurationSteps;
+    const decay = C.DIFFICULTY?.powerDurationDecay ?? 1;
+    const min = C.DIFFICULTY?.minPowerDuration ?? 0;
+    const lvl = Math.max(1, level);
+    const duration = Math.round(base * Math.pow(decay, lvl - 1));
+    return Math.max(min, duration);
+  }
 
   function frightenedDurationForLevel(level) {
     const lvl = Math.max(1, level);
