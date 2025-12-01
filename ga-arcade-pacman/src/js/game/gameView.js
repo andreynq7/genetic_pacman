@@ -3,8 +3,10 @@
 (function() {
   // Tile metadata
   const TILE_SIZE = 16;
-  const MAP_COLS = 28;
-  const MAP_ROWS = 31;
+//   const MAP_COLS = 28;
+//   const MAP_ROWS = 31;
+  const MAP_COLS = 22;
+  const MAP_ROWS = 20;
   const STEP_MS = 100;
 
   // Legend:
@@ -14,39 +16,61 @@
   //   = Empty path
   // G = Ghost house gate/area
   // P = Suggested Pac-Man spawn
-  const LEVEL_MAP = [
-    'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
-    'W............WW............W',
-    'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
-    'WoWWWW.WWWWW.WW.WWWWW.WWWWoW',
-    'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
-    'W..........................W',
-    'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
-    'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
-    'W......WW..........WW......W',
-    'W.WWWW.WWWWW WW WWWWW.WWWW.W',
-    'W...WW.WWWWW WW WWWWW.WW...W',
-    'WWW.WW....        ....WW.WWW',
-    'WWW.WW.WW.WWGGGGWW.WW.WW.WWW',
-    'WWW.WW.WW.WWCCCCWW.WW.WW.WWW',
-    'W.........WWWWWWWW.........W',
-    'W.WWWW.WW....WW....WW.WWWW.W',
-    'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
-    'Wo..WW................WW..oW',
-    'WWW.WW.WW.WWWWWWWW.WW.WW.WWW',
-    'WWW.WW.WW.WWWWWWWW.WW.WW.WWW',
-    'W......WW....WW....WW......W',
-    'W.WWWW....WW.WW.WW....WWWW.W',
-    'W.WWWWW.WWWW.WW.WWWW.WWWWW.W',
-    'W............WW............W',
-    'W.WWWW.WW.WW.WW.WW.WW.WWWW.W',
-    'W.WWWW.WW.WW.WW.WW.WW.WWWW.W',
-    'W.....o......WW......o.....W',
-    'WoWW.WWWWWWW.WW.WWWWWWW.WWoW',
-    'W.WW.WWWWWWW.WW.WWWWWWW.WW.W',
-    'W..............P...........W',
-    'WWWWWWWWWWWWWWWWWWWWWWWWWWWW'
-  ];
+//   const LEVEL_MAP = [
+//     'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+//     'W............WW............W',
+//     'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+//     'WoWWWW.WWWWW.WW.WWWWW.WWWWoW',
+//     'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+//     'W..........................W',
+//     'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
+//     'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
+//     'W.WWWW.WW..........WW.WWWW.W',
+//     'W.WWWW.WWWWW WW WWWWW.WWWW.W',
+//     'W...WW.WWWWW WW WWWWW.WW...W',
+//     'WWW.WW....        ....WW.WWW',
+//     'WWW.WW.WW.WWGGGGWW.WW.WW.WWW',
+//     'WWW.WW.WW.WWCCCCWW.WW.WW.WWW',
+//     'W......WW.WWWWWWWW.WW......W',
+//     'W.WWWW.WW....WW....WW.WWWW.W',
+//     'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+//     'Wo..WW................WW..oW',
+//     'WWW.WWWWW.WWWWWWWW.WWWWW.WWW',
+//     'WWW.WWWWW.WWWWWWWW.WWWWW.WWW',
+//     'W......WW....WW....WW......W',
+//     'W.WWWW....WW.WW.WW....WWWW.W',
+//     'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+//     'W............WW............W',
+//     'W.WWWWWWW.WWWWWWWW.WWWWWWW.W',
+//     'W.WWWWWWW.WWWWWWWW.WWWWWWW.W',
+//     'W.....o......WW......o.....W',
+//     'WoWW.WWWWWWW.WW.WWWWWWW.WWoW',
+//     'W.WW.WWWWWWW.WW.WWWWWWW.WW.W',
+//     'W..............P...........W',
+//     'WWWWWWWWWWWWWWWWWWWWWWWWWWWW'
+//   ];
+const LEVEL_MAP = [
+  'WWWWWWWWWWWWWWWWWWWWWW',
+  'W....................W',
+  'W.W.WWWW.WWWW.WWWW.W.W',
+  'WoW.W  WoWWWW.W  WoWoW',
+  'W.W.WWWW.WWWW.WWWW.W.W',
+  'W....................W',
+  'W.WWWW.WWWWWWWW.WWWW.W',
+  'W.WWWW..........WWWW.W',
+  'W.WWWW.W.GGGG.W.WWWW.W',
+  'W......W.GCCG.W......W',
+  'W.WWWW.W.GGGG.W.WWWW.W',
+  'W.WWWW..........WWWW.W',
+  'W.WWWW.WWWWWWWW.WWWW.W',
+  'W....................W',
+  'W.WWWW.W.WWWW.W.WWWW.W',
+  'Wo.....W.WWWW.W......W',
+  'W.WWWW.W.WWWW.W.WWWW.W',
+  'W.WWWW.W.WWWW.W.WWWW.W',
+  'W...........P........W',
+  'WWWWWWWWWWWWWWWWWWWWWW'
+];
 
   const TILE_TYPES = {
     WALL: 'W',
