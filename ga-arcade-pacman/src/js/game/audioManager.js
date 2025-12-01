@@ -285,6 +285,15 @@
     stopAllSounds,
     setMuted,
     primeForInstantStart,
-    ensurePreloaded
+    ensurePreloaded,
+    isAnyPlaying: () => {
+      return Object.values(sounds).some((a) => {
+        try {
+          return a && !a.paused && !a.ended && a.currentTime > 0;
+        } catch (_) {
+          return false;
+        }
+      });
+    }
   };
 })();

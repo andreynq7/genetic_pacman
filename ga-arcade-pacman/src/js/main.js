@@ -14,6 +14,7 @@
   const comparisonData = { on: null, off: null };
   let fpsOverlayEl = null;
   let fpsMeasure = { last: 0, frames: 0, fps: 0 };
+  let watchdogHandle = null;
 
   function initApp() {
     refs = uiLayout.getRefs();
@@ -51,6 +52,7 @@
     gameView.preloadSprites().finally(() => {
       setupGame();
       uiMetrics.renderPlaceholderGraph(refs);
+      startWatchdog();
     });
     console.log('GA-Arcade UI lista con integración de GA.');
   }
@@ -315,8 +317,13 @@
     if (!currentState) return;
     const result = gameLogic.stepGame(currentState, action || gameConstants.ACTIONS.STAY);
     currentState = result.state;
+    const info = result.info || {};
+    if (info.lifeLostThisStep || currentState.status === 'life_lost') {
+      handleLifeLostTransition();
+      return;
+    }
     if (window.audioManager) {
-      window.audioManager.handleStep(currentState, result.info || {});
+      window.audioManager.handleStep(currentState, info);
     }
     if (result.done) {
       const reason = result.state.status;
@@ -402,6 +409,52 @@
     startRenderLoop();
   }
 
+  async function handleLifeLostTransition() {
+    cancelRenderLoop();
+    demoRunning = false;
+    render();
+    let respawnCompleted = false;
+    if (window.audioManager) {
+      window.audioManager.stopAllSounds();
+      if (window.audioManager.ensurePreloaded) await window.audioManager.ensurePreloaded();
+      await window.audioManager.playOnceWithEnd('miss');
+    }
+    if (!currentState || currentState.lives <= 0 || currentState.status === 'game_over') {
+      if (window.audioManager) window.audioManager.stopAllSounds();
+      stopDemo();
+      uiMetrics.updateStatusBadge('Game Over', 'paused');
+      showGameOverModal();
+      currentState = gameState.createInitialState();
+      render();
+      return;
+    }
+    const tickRespawnDuring = async (msTotal) => {
+      const stepsNeeded = Math.max(1, Math.ceil(msTotal / stepMs));
+      for (let i = 0; i < stepsNeeded; i += 1) {
+        if (!respawnCompleted && currentState) {
+          const res = gameLogic.stepGame(currentState, gameConstants.ACTIONS.STAY);
+          currentState = res.state;
+          respawnCompleted = (currentState.status === 'running' && (res.info?.respawnTimerSteps === 0));
+          if (respawnCompleted) {
+            currentState.lifeLostThisStep = false;
+            render();
+          }
+        }
+        await delay(stepMs);
+      }
+    };
+    if (window.audioManager) {
+      await window.audioManager.playStartMusic();
+    }
+    await runCountdownSequence(async (phase) => {
+      await tickRespawnDuring(phase.duration);
+    });
+    if (window.audioManager) {
+      window.audioManager.startGameplayLoops(currentState);
+    }
+    startRenderLoop();
+  }
+
   function cancelRenderLoop() {
     if (renderLoopHandle) {
       cancelAnimationFrame(renderLoopHandle);
@@ -416,13 +469,23 @@
     return Number(val).toFixed(2);
   }
 
-  async function runCountdownSequence() {
-    const overlay = ensureCountdownOverlay();
-    updateCountdownOverlay('READY');
-    await delay(500);
-    for (const n of [3, 2, 1]) {
-      updateCountdownOverlay(String(n));
-      await delay(1000);
+  const countdownPhases = [
+    { label: 'READY', duration: 500 },
+    { label: '3', duration: 1000 },
+    { label: '2', duration: 1000 },
+    { label: '1', duration: 1000 },
+    { label: 'GO!', duration: 600 }
+  ];
+
+  async function runCountdownSequence(onPhaseTick) {
+    ensureCountdownOverlay();
+    for (const phase of countdownPhases) {
+      updateCountdownOverlay(phase.label);
+      if (onPhaseTick) {
+        await onPhaseTick(phase);
+      } else {
+        await delay(phase.duration);
+      }
     }
     removeCountdownOverlay();
   }
@@ -480,6 +543,30 @@
     }
     fpsOverlayEl = el;
     return el;
+  }
+
+  function isCountdownActive() {
+    return !!document.getElementById('countdown-overlay');
+  }
+
+  function startWatchdog() {
+    if (watchdogHandle) return;
+    watchdogHandle = setInterval(() => {
+      const audioActive = !!(window.audioManager && window.audioManager.isAnyPlaying && window.audioManager.isAnyPlaying());
+      const renderActive = !!renderLoopHandle;
+      const canResume = currentState && currentState.status === 'running' && !isCountdownActive();
+      if (audioActive && !renderActive && canResume) {
+        startRenderLoop();
+        return;
+      }
+      if (renderActive && demoRunning && lastTimestamp != null) {
+        const stale = (Date.now() - lastTimestamp) > 600;
+        if (stale && canResume) {
+          cancelRenderLoop();
+          startRenderLoop();
+        }
+      }
+    }, 500);
   }
 
   function updateFps(ts) {

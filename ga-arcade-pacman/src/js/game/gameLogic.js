@@ -11,6 +11,10 @@
   const STEP_MS = (C?.TIMING?.stepDurationMs) || 100;
   const RESPAWN_WAIT_STEPS = Math.max(1, C.GHOST_RESPAWN_STEPS || Math.round(((C.TIMING?.ghostRespawnMs) || 3000) / STEP_MS));
 
+  function cloneActors(list) {
+    return (list || []).map((g) => ({ ...g }));
+  }
+
   /**
    * Ejecuta un paso de simulación discreto.
    * Nota: la acción propuesta puede ser anulada en modo power para perseguir
@@ -1140,6 +1144,20 @@
     if (!state.levelSnapshot) {
       STATE.captureLevelSnapshot(state);
     }
+
+    const preserved = {
+      score: state.score,
+      lives: state.lives,
+      level: state.level,
+      lifeLossCount: state.lifeLossCount || 0,
+      scoreInicialNivel: state.scoreInicialNivel,
+      pelletsRemaining: state.pelletsRemaining,
+      initialPellets: state.initialPellets,
+      pelletMilestoneAwarded: state.pelletMilestoneAwarded,
+      stepsSinceLastPellet: state.stepsSinceLastPellet,
+      steps: state.steps
+    };
+
     STATE.restoreLevelSnapshot(state);
     const palette = ['red', 'pink', 'blue', 'orange'];
     const pacSpawn = state.pacmanSpawn || C.DEFAULTS.pacmanSpawn;
@@ -1165,50 +1183,71 @@
         ? state.levelSnapshot.ghostSpawnPoints
         : C.DEFAULTS.ghostSpawns);
 
+    const buildGhost = (template, idx, spawnOverride) => {
+      const spawn = spawnOverride || spawnPoints[idx % spawnPoints.length] || spawnPoints[0];
+      const color = template.color || template.originalColor || palette[idx % palette.length];
+      const homeCol = template.homeCol ?? spawn.col;
+      const homeRow = template.homeRow ?? spawn.row;
+      return {
+        id: template.id || `ghost-${idx + 1}`,
+        color,
+        originalColor: template.originalColor || color,
+        col: spawn.col,
+        row: spawn.row,
+        prevCol: spawn.col,
+        prevRow: spawn.row,
+        dir: C.ACTIONS.LEFT,
+        frightenedTimer: 0,
+        frightenedWarning: false,
+        state: 'NORMAL',
+        speedFactor: 1,
+        moveAccumulator: 0,
+        frightenedSpeedTarget: 1,
+        leavingPen: false,
+        penExitPath: null,
+        penExitStep: 0,
+        eatenThisPower: false,
+        returningToHome: false,
+        waitingToRespawn: false,
+        respawnReleaseStep: null,
+        eyeBlinkStartStep: state.steps || 0,
+        eyeState: false,
+        homeCol,
+        homeRow,
+        mode: state.ghostMode ?? ((C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || (C.GHOST_MODES?.SCATTER) || 'SCATTER'),
+        speed: 1,
+        cornerCol: (C.GHOST_CORNERS?.[color]?.col) ?? homeCol,
+        cornerRow: (C.GHOST_CORNERS?.[color]?.row) ?? homeRow
+      };
+    };
+
     if (penTemplates && penTemplates.length) {
-      state.ghostPen = cloneActors(penTemplates);
-      const penMap = new Map(state.ghostPen.map((g) => [g.id, g]));
-      state.pendingGhosts = pendingTemplates.map((g) => penMap.get(g.id) || { ...g });
-      state.ghosts = cloneActors(state.levelSnapshot?.ghosts || []);
-    } else {
-      state.ghosts = ghostTemplates.map((template, idx) => {
-        const spawn = spawnPoints[idx % spawnPoints.length] || spawnPoints[0];
-        const color = template.color || template.originalColor || palette[idx % palette.length];
-        const homeCol = template.homeCol ?? spawn.col;
-        const homeRow = template.homeRow ?? spawn.row;
+      state.ghostPen = penTemplates.map((template, idx) => {
+        const spawn = { col: template.col ?? spawnPoints[idx % spawnPoints.length]?.col ?? template.homeCol ?? template.col, row: template.row ?? spawnPoints[idx % spawnPoints.length]?.row ?? template.homeRow ?? template.row };
+        const base = buildGhost(template, idx, spawn);
         return {
-          id: template.id || `ghost-${idx + 1}`,
-          color,
-          originalColor: template.originalColor || color,
-          col: spawn.col,
-          row: spawn.row,
-          prevCol: spawn.col,
-          prevRow: spawn.row,
-          dir: C.ACTIONS.LEFT,
-          frightenedTimer: 0,
-          frightenedWarning: false,
-          state: 'NORMAL',
-          speedFactor: 1,
-          moveAccumulator: 0,
-          frightenedSpeedTarget: 1,
+          ...base,
+          state: 'PEN',
           leavingPen: false,
           penExitPath: null,
           penExitStep: 0,
-          eatenThisPower: false,
-          returningToHome: false,
           waitingToRespawn: false,
-          respawnReleaseStep: null,
-          eyeBlinkStartStep: state.steps || 0,
+          returningToHome: false,
           eyeState: false,
-          homeCol,
-          homeRow,
-          mode: state.ghostMode ?? ((C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || (C.GHOST_MODES?.SCATTER) || 'SCATTER'),
-          speed: 1,
-          cornerCol: (C.GHOST_CORNERS?.[color]?.col) ?? homeCol,
-          cornerRow: (C.GHOST_CORNERS?.[color]?.row) ?? homeRow
+          frightenedTimer: 0,
+          frightenedWarning: false
         };
       });
-      state.pendingGhosts = pendingTemplates.map((g) => ({ ...g }));
+      const penMap = new Map(state.ghostPen.map((g) => [g.id, g]));
+      state.pendingGhosts = pendingTemplates.map((g, idx) => {
+        const penClone = penMap.get(g.id);
+        if (penClone) return { ...penClone, state: 'PEN' };
+        return buildGhost(g, idx, { col: g.col, row: g.row });
+      });
+      state.ghosts = ghostTemplates.map((template, idx) => buildGhost(template, idx));
+    } else {
+      state.ghosts = ghostTemplates.map((template, idx) => buildGhost(template, idx));
+      state.pendingGhosts = pendingTemplates.map((g, idx) => buildGhost(g, idx, { col: g.col, row: g.row }));
       state.ghostPen = [];
     }
     state.ghostSpawnIntervalSteps = state.ghostSpawnIntervalSteps ?? (C.GHOST_SPAWN_INTERVAL_STEPS || 1);
@@ -1223,17 +1262,22 @@
     state.stepsSinceLastPellet = state.levelSnapshot?.stepsSinceLastPellet ?? 0;
     state.pelletMilestoneAwarded = state.levelSnapshot?.pelletMilestoneAwarded ?? false;
     state.lastAction = state.levelSnapshot?.lastAction ?? state.lastAction;
+    state.score = preserved.score;
+    state.lives = preserved.lives;
+    state.level = preserved.level;
+    state.lifeLossCount = preserved.lifeLossCount;
+    state.scoreInicialNivel = preserved.scoreInicialNivel ?? state.scoreInicialNivel;
+    state.initialPellets = preserved.initialPellets ?? state.initialPellets;
+    state.pelletsRemaining = preserved.pelletsRemaining ?? state.pelletsRemaining;
+    state.pelletMilestoneAwarded = preserved.pelletMilestoneAwarded ?? state.pelletMilestoneAwarded;
+    state.stepsSinceLastPellet = preserved.stepsSinceLastPellet ?? state.stepsSinceLastPellet;
+    state.steps = preserved.steps ?? state.steps;
+    state.lifeLostThisStep = false;
+    STATE.captureLevelSnapshot(state);
     invalidatePowerPathCache();
   }
 
-  function powerDurationForLevel(level) {
-    const base = C.DEFAULTS.powerDurationSteps;
-    const decay = C.DIFFICULTY?.powerDurationDecay ?? 1;
-    const min = C.DIFFICULTY?.minPowerDuration ?? 0;
-    const lvl = Math.max(1, level);
-    const duration = Math.round(base * Math.pow(decay, lvl - 1));
-    return Math.max(min, duration);
-  }
+  
 
   function frightenedDurationForLevel(level) {
     const lvl = Math.max(1, level);
