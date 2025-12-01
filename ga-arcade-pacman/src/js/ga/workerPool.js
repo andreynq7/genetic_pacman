@@ -21,7 +21,7 @@
     }
 
     const scriptUrl = options.scriptUrl || './src/js/ga/gaWorker.js';
-    const size = Math.max(1, options.size || Math.min(4, (navigator.hardwareConcurrency || 2)));
+    const size = Math.max(1, options.size || Math.min(8, (navigator.hardwareConcurrency || 2)));
     const defaultChunk = Math.max(1, options.chunkSize || 16);
     const workers = [];
     const queue = [];

@@ -1,4 +1,4 @@
-﻿// Visual updates for live metrics placeholders.
+// Visual updates for live metrics placeholders.
 (function() {
   const statusClassMap = {
     idle: 'status-idle',
@@ -34,6 +34,10 @@
     updateMetricValue(refs.metrics.generation, metrics.generation ?? '--');
     updateMetricValue(refs.metrics.totalTime, metrics.totalTime ?? '--');
     updateMetricValue(refs.metrics.avgTime, metrics.averageTime ?? '--');
+    updateMetricValue(refs.metrics.workersActive, metrics.workersActive ?? refs.metrics.workersActive?.textContent ?? '--');
+    updateMetricValue(refs.metrics.chunkSizeUsed, metrics.chunkSizeUsed ?? refs.metrics.chunkSizeUsed?.textContent ?? '--');
+    updateMetricValue(refs.metrics.workersActiveDup, metrics.workersActive ?? refs.metrics.workersActiveDup?.textContent ?? '--');
+    updateMetricValue(refs.metrics.chunkSizeUsedDup, metrics.chunkSizeUsed ?? refs.metrics.chunkSizeUsedDup?.textContent ?? '--');
   }
 
   function updateMetrics(refs, metrics) {
@@ -104,7 +108,17 @@
     const padding = 18;
     const width = canvas.width - padding * 2;
     const height = canvas.height - padding * 2;
-    const maxVal = Math.max(1, ...bestSeries, ...avgSeries);
+    const firstBest = firstDataValue(bestSeries);
+    const firstAvg = firstDataValue(avgSeries);
+    const haveData = Number.isFinite(firstBest) || Number.isFinite(firstAvg);
+    const minBase = Math.min(
+      Number.isFinite(firstBest) ? firstBest : Infinity,
+      Number.isFinite(firstAvg) ? firstAvg : Infinity
+    );
+    const maxVal = Math.max(1,
+      ...bestSeries.map(n => Number.isFinite(n) ? n : 0),
+      ...avgSeries.map(n => Number.isFinite(n) ? n : 0)
+    );
 
     ctx.fillStyle = '#0f0f0f';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -121,22 +135,64 @@
       ctx.stroke();
     }
 
-    plotSeries(ctx, bestSeries, padding, width, height, maxVal, '#00bcd4');
-    plotSeries(ctx, avgSeries, padding, width, height, maxVal, '#ffc107');
+    if (!haveData) {
+      return;
+    }
+    const denom = Math.max(1e-9, maxVal - minBase);
+    plotSeries(ctx, bestSeries, padding, width, height, maxVal, '#00bcd4', minBase, denom);
+    plotSeries(ctx, avgSeries, padding, width, height, maxVal, '#ffc107', minBase, denom);
   }
 
-  function plotSeries(ctx, series, padding, width, height, maxVal, color) {
+  function plotSeries(ctx, series, padding, width, height, maxVal, color, minBase, denom) {
     if (!series.length) return;
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.beginPath();
     series.forEach((val, idx) => {
       const x = padding + (idx / Math.max(1, series.length - 1)) * width;
-      const y = padding + height - (val / maxVal) * height;
+      const v = Number.isFinite(val) ? val : minBase;
+      const clamped = Math.max(minBase, Math.min(maxVal, v));
+      const y = padding + height - ((clamped - minBase) / denom) * height;
       if (idx === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
+  }
+
+  function firstDataValue(series) {
+    for (let i = 0; i < series.length; i += 1) {
+      const v = Number(series[i]);
+      if (Number.isFinite(v)) return v;
+    }
+    return NaN;
+  }
+
+  function renderComparisonGraph(refs, onData, offData) {
+    const canvas = refs?.workers?.comparison?.canvas;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const padding = 18;
+    const width = canvas.width - padding * 2;
+    const height = canvas.height - padding * 2;
+    const onVal = onData ? (onData.totalTimeMs || 0) : 0;
+    const offVal = offData ? (offData.totalTimeMs || 0) : 0;
+    const maxVal = Math.max(1, onVal, offVal);
+    ctx.fillStyle = '#0f0f0f';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.strokeRect(padding, padding, width, height);
+    const barW = Math.floor(width / 4);
+    const gap = Math.floor(width / 6);
+    const onH = Math.floor((onVal / maxVal) * height);
+    const offH = Math.floor((offVal / maxVal) * height);
+    const baseY = padding + height;
+    const onX = padding + gap;
+    const offX = padding + gap * 3 + barW;
+    ctx.fillStyle = '#00bcd4';
+    ctx.fillRect(onX, baseY - onH, barW, onH);
+    ctx.fillStyle = '#ffc107';
+    ctx.fillRect(offX, baseY - offH, barW, offH);
   }
 
   window.uiMetrics = {
@@ -144,6 +200,7 @@
     updateMetrics,
     updateTrainingMetrics,
     renderPlaceholderGraph,
-    renderFitnessGraph
+    renderFitnessGraph,
+    renderComparisonGraph
   };
 })();

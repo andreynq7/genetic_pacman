@@ -49,6 +49,7 @@
     POWER: 'o',
     PATH: ' ',
     GHOST_GATE: 'G',
+    GHOST_CONTAINER: 'C',
     PACMAN_SPAWN: 'P'
   };
 
@@ -81,7 +82,7 @@
     ],
     lives: 3,
     powerDurationSteps: 60,
-    stepLimit: 50000
+    stepLimit: 1000 
   };
 
   const GHOST_MODES = {
@@ -109,7 +110,7 @@
     powerPellet: 50,
     step: -0.3,
     emptyStep: -1.5,
-    death: -1000,
+    death: -500,
     ghostEaten: 100,
     levelClear: 10000
   };
@@ -150,14 +151,29 @@
     ghostChaseMax: 0.85
   };
 
+  const FRIGHTENED = {
+    speedMin: 0.45,     // ~50% de velocidad base para bajar agresividad
+    speedMax: 0.55,     // rango estrecho para mantenerlo suave
+    speedJitter: 0.05,  // menos variacion aleatoria
+    accel: 0.06         // transiciones mas suaves entre objetivos de velocidad
+  };
+
   const TIMING = {
     stepDurationMs: STEP_DURATION_MS,
     ghostRespawnMs: 3000,
-    ghostBlinkMs: 250
+    ghostBlinkMs: 250,
+    frightenedWarningMs: 3000,
+    frightenedDurationMinMs: 8000,
+    frightenedDurationMaxMs: 12000,
+    ghostSpawnIntervalMs: 5000,
+    respawnDelayMs: 2000
   };
 
   const GHOST_RESPAWN_STEPS = Math.max(1, Math.round(TIMING.ghostRespawnMs / TIMING.stepDurationMs));
   const GHOST_BLINK_STEPS = Math.max(1, Math.round(TIMING.ghostBlinkMs / TIMING.stepDurationMs));
+  const FRIGHTENED_WARNING_STEPS = Math.max(1, Math.round(TIMING.frightenedWarningMs / TIMING.stepDurationMs));
+  const GHOST_SPAWN_INTERVAL_STEPS = Math.max(1, Math.round(TIMING.ghostSpawnIntervalMs / TIMING.stepDurationMs));
+  const RESPAWN_DELAY_STEPS = Math.max(1, Math.round(TIMING.respawnDelayMs / TIMING.stepDurationMs));
 
   window.gameConstants = {
     TILE_SIZE,
@@ -172,11 +188,15 @@
     STALL,
     BALANCE,
     DIFFICULTY,
+    FRIGHTENED,
     GHOST_MODES,
     SCATTER_CHASE_SCHEDULE,
     GHOST_CORNERS,
     TIMING,
     GHOST_RESPAWN_STEPS,
-    GHOST_BLINK_STEPS
+    GHOST_BLINK_STEPS,
+    FRIGHTENED_WARNING_STEPS,
+    GHOST_SPAWN_INTERVAL_STEPS,
+    RESPAWN_DELAY_STEPS
   };
 })();

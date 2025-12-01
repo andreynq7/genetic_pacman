@@ -1,4 +1,4 @@
-﻿// Default configuration for GA parameters used by the UI only.
+// Default configuration for GA parameters used by the UI only.
 const defaultConfig = {
   populationSize: 40,
   generations: 50,
@@ -8,7 +8,9 @@ const defaultConfig = {
   tournamentSize: 3,
   randomSeed: 42,
   simulationFps: 60,
-  episodesPerIndividual: 5
+  episodesPerIndividual: 5,
+  workerSize: 8,
+  chunkSize: 0
 };
 
 window.defaultConfig = defaultConfig;

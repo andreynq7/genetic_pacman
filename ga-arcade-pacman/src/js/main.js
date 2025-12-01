@@ -10,6 +10,10 @@
   let lastTimestamp = null;
   let accumulatorMs = 0;
   const stepMs = 100; // 10 pasos lógicos por segundo, render a ~60fps
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const comparisonData = { on: null, off: null };
+  let fpsOverlayEl = null;
+  let fpsMeasure = { last: 0, frames: 0, fps: 0 };
 
   function initApp() {
     refs = uiLayout.getRefs();
@@ -17,7 +21,10 @@
     uiForms.bindFormValidation(refs);
     uiForms.validateParametersForm(refs);
     if (window.audioManager) {
-      window.audioManager.loadAll().catch(() => {});
+      const preload = window.audioManager.ensurePreloaded || window.audioManager.loadAll;
+      if (preload) {
+        try { preload(); } catch (e) { /* ignore preload errors in init */ }
+      }
     }
 
     uiControls.bindControls(refs, {
@@ -29,6 +36,8 @@
       onExportBest: handleExportBest,
       onExportRun: handleExportRun
     });
+
+
 
     uiMetrics.updateTrainingMetrics(refs, {
       bestFitness: '--',
@@ -46,9 +55,12 @@
     console.log('GA-Arcade UI lista con integración de GA.');
   }
 
+
+
   function setupGame() {
     ctx = gameView.initGameView(refs.game?.canvas || 'game-canvas');
     currentState = gameState.createInitialState();
+    ensureFpsOverlay();
     render();
   }
 
@@ -137,13 +149,17 @@
     const genLabel = `${info.generation}/${gaController.getStatus().maxGenerations || info.generation}`;
     const totalTime = `${formatNumber(info.totalTimeMs / 1000)} s`;
     const avgTime = `${formatNumber(info.avgTimeMs / 1000)} s`;
+    const workersActive = info.workerPoolSize != null ? String(info.workerPoolSize) : '--';
+    const chunkSizeUsed = info.workerChunkSize != null ? String(info.workerChunkSize) : '--';
 
     uiMetrics.updateTrainingMetrics(refs, {
       bestFitness: best,
       averageFitness: avg,
       generation: genLabel,
       totalTime,
-      averageTime: avgTime
+      averageTime: avgTime,
+      workersActive,
+      chunkSizeUsed
     });
     uiMetrics.renderFitnessGraph(refs, info.history.bestFitness, info.history.avgFitness);
   }
@@ -153,6 +169,15 @@
     if (summary?.history) {
       uiMetrics.renderFitnessGraph(refs, summary.history.bestFitness, summary.history.avgFitness);
     }
+    const status = gaController.getStatus();
+    const enabled = gaController.getWorkerOptions ? !!gaController.getWorkerOptions().enabled : true;
+    const best = gaController.getBestFitness();
+    const totalMs = summary?.totalTimeMs || gaController.getTiming()?.totalMs || 0;
+    const genCount = status?.generation || 0;
+    const avgMs = genCount > 0 ? totalMs / genCount : 0;
+    const payload = { bestFitness: best, totalTimeMs: totalMs, avgTimeMs: avgMs, generations: genCount };
+    if (enabled) comparisonData.on = payload; else comparisonData.off = payload;
+    updateComparisonUI();
   }
 
   function onTrainingProgress(progress) {
@@ -160,6 +185,24 @@
     if (progress.stage === 'evaluation') {
       uiMetrics.updateStatusBadge('Evaluando', 'training');
     }
+  }
+
+  function updateComparisonUI() {
+    const r = refs.workers?.comparison;
+    if (!r) return;
+    const on = comparisonData.on;
+    const off = comparisonData.off;
+    if (on) {
+      domHelpers.setText(r.onTotalTime, `${formatNumber(on.totalTimeMs / 1000)} s`);
+      domHelpers.setText(r.onAvgTime, `${formatNumber(on.avgTimeMs / 1000)} s`);
+      domHelpers.setText(r.onBest, `${formatNumber(on.bestFitness)}`);
+    }
+    if (off) {
+      domHelpers.setText(r.offTotalTime, `${formatNumber(off.totalTimeMs / 1000)} s`);
+      domHelpers.setText(r.offAvgTime, `${formatNumber(off.avgTimeMs / 1000)} s`);
+      domHelpers.setText(r.offBest, `${formatNumber(off.bestFitness)}`);
+    }
+    if (uiMetrics.renderComparisonGraph) uiMetrics.renderComparisonGraph(refs, on, off);
   }
 
   // ----------------- Demo del mejor individuo -----------------
@@ -174,15 +217,11 @@
     }
     currentState = gameState.createInitialState();
     uiMetrics.updateStatusBadge('Demo', 'demo');
-    showReadyLabel();
-    const startSeq = window.audioManager ? window.audioManager.playStartSequence() : Promise.resolve();
-    startSeq.finally(() => {
-      hideReadyLabel();
-      if (window.audioManager) {
-        window.audioManager.startGameplayLoops(currentState);
-      }
-      startRenderLoop();
-    });
+    if (window.audioManager && window.audioManager.primeForInstantStart) {
+      window.audioManager.primeForInstantStart();
+    }
+    render();
+    startDemoWithCountdown();
   }
 
   function pauseDemoLoop() {
@@ -281,17 +320,12 @@
     }
     if (result.done) {
       const reason = result.state.status;
-      if ((reason === 'life_lost' || reason === 'game_over') && result.state.lives <= 0) {
+      if ((reason === 'game_over') && result.state.lives <= 0) {
+        if (window.audioManager) window.audioManager.stopAllSounds();
         stopDemo();
         uiMetrics.updateStatusBadge('Game Over', 'paused');
         showGameOverModal();
         currentState = gameState.createInitialState();
-        render();
-        return;
-      }
-      if (reason === 'life_lost' && result.state.lives > 0) {
-        currentState = gameState.createInitialState({ lives: result.state.lives, level: result.state.level, score: result.state.score });
-        if (window.audioManager) window.audioManager.startGameplayLoops(currentState);
         render();
         return;
       }
@@ -304,9 +338,8 @@
         return;
       }
       const nextLevel = reason === 'level_cleared' ? (result.state.level || 1) + 1 : (result.state.level || 1);
-      currentState = gameState.createInitialState({ lives: result.state.lives, level: nextLevel, score: result.state.score });
-      if (window.audioManager) window.audioManager.startGameplayLoops(currentState);
-      render();
+      const nextState = gameState.createInitialState({ lives: result.state.lives, level: nextLevel, score: result.state.score });
+      beginLevelTransition(nextState);
     }
   }
 
@@ -323,6 +356,7 @@
     }
     const alpha = Math.max(0, Math.min(1, accumulatorMs / stepMs));
     render(alpha);
+    updateFps(timestamp);
     if (demoRunning && currentState?.status !== 'game_over') {
       renderLoopHandle = requestAnimationFrame(renderLoop);
     }
@@ -332,7 +366,47 @@
     demoRunning = true;
     lastTimestamp = null;
     accumulatorMs = 0;
+    fpsMeasure = { last: 0, frames: 0, fps: 0 };
     renderLoopHandle = requestAnimationFrame(renderLoop);
+  }
+
+  async function startDemoWithCountdown() {
+    cancelRenderLoop();
+    demoRunning = false;
+    if (window.audioManager) {
+      window.audioManager.stopAllSounds();
+      if (window.audioManager.ensurePreloaded) window.audioManager.ensurePreloaded();
+      window.audioManager.playStartMusic();
+    }
+    await runCountdownSequence();
+    if (window.audioManager) {
+      window.audioManager.startGameplayLoops(currentState);
+    }
+    startRenderLoop();
+  }
+
+  async function beginLevelTransition(nextState) {
+    cancelRenderLoop();
+    demoRunning = false;
+    if (window.audioManager) {
+      window.audioManager.stopAllSounds();
+      if (window.audioManager.ensurePreloaded) window.audioManager.ensurePreloaded();
+      window.audioManager.playStartMusic();
+    }
+    currentState = nextState;
+    render();
+    await runCountdownSequence();
+    if (window.audioManager) {
+      window.audioManager.startGameplayLoops(currentState);
+    }
+    startRenderLoop();
+  }
+
+  function cancelRenderLoop() {
+    if (renderLoopHandle) {
+      cancelAnimationFrame(renderLoopHandle);
+      renderLoopHandle = null;
+    }
   }
 
 
@@ -342,33 +416,92 @@
     return Number(val).toFixed(2);
   }
 
-  function showReadyLabel() {
-    const existing = document.getElementById('ready-overlay');
-    if (existing) existing.remove();
-    const overlay = document.createElement('div');
-    overlay.id = 'ready-overlay';
-    Object.assign(overlay.style, {
-      position: 'absolute',
-      inset: '0',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: '48px',
-      fontWeight: '800',
-      color: '#ffc107',
-      textShadow: '0 0 10px #000',
-      pointerEvents: 'none',
-      zIndex: '50'
-    });
-    overlay.textContent = 'READY';
-    const gameContainer = refs?.game?.container || (refs?.game?.canvas?.parentElement);
-    const parent = gameContainer || document.body;
-    parent.style.position = parent.style.position || 'relative';
-    parent.appendChild(overlay);
+  async function runCountdownSequence() {
+    const overlay = ensureCountdownOverlay();
+    updateCountdownOverlay('READY');
+    await delay(500);
+    for (const n of [3, 2, 1]) {
+      updateCountdownOverlay(String(n));
+      await delay(1000);
+    }
+    removeCountdownOverlay();
   }
 
-  function hideReadyLabel() {
-    const existing = document.getElementById('ready-overlay');
+  function ensureCountdownOverlay() {
+    let overlay = document.getElementById('countdown-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'countdown-overlay';
+      Object.assign(overlay.style, {
+        position: 'absolute',
+        inset: '0',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '56px',
+        fontWeight: '900',
+        color: '#ffc107',
+        textShadow: '0 0 12px #000',
+        pointerEvents: 'none',
+        zIndex: '60',
+        background: 'rgba(0,0,0,0.35)'
+      });
+      const gameContainer = refs?.game?.container || (refs?.game?.canvas?.parentElement);
+      const parent = gameContainer || document.body;
+      parent.style.position = parent.style.position || 'relative';
+      parent.appendChild(overlay);
+    }
+    return overlay;
+  }
+
+  function ensureFpsOverlay() {
+    let el = document.getElementById('fps-overlay');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'fps-overlay';
+      Object.assign(el.style, {
+        position: 'absolute',
+        top: '8px',
+        left: '8px',
+        padding: '2px 6px',
+        borderRadius: '6px',
+        fontSize: '12px',
+        fontWeight: '700',
+        color: '#e0f7fa',
+        background: 'rgba(0,0,0,0.35)',
+        backdropFilter: 'blur(3px)',
+        boxShadow: '0 0 6px rgba(0,0,0,0.4)',
+        pointerEvents: 'none',
+        zIndex: '40'
+      });
+      const gameContainer = refs?.game?.canvas?.parentElement || document.body;
+      gameContainer.style.position = gameContainer.style.position || 'relative';
+      gameContainer.appendChild(el);
+    }
+    fpsOverlayEl = el;
+    return el;
+  }
+
+  function updateFps(ts) {
+    if (!fpsOverlayEl) return;
+    if (!fpsMeasure.last) fpsMeasure.last = ts;
+    fpsMeasure.frames += 1;
+    const dt = ts - fpsMeasure.last;
+    if (dt >= 500) {
+      fpsMeasure.fps = fpsMeasure.frames / (dt / 1000);
+      fpsMeasure.frames = 0;
+      fpsMeasure.last = ts;
+      fpsOverlayEl.textContent = `${Math.round(fpsMeasure.fps)} FPS`;
+    }
+  }
+
+  function updateCountdownOverlay(text) {
+    const overlay = ensureCountdownOverlay();
+    overlay.textContent = text;
+  }
+
+  function removeCountdownOverlay() {
+    const existing = document.getElementById('countdown-overlay');
     if (existing) existing.remove();
   }
 
@@ -457,6 +590,7 @@
     startDemoLoop: handleDemoBest,
     pauseDemoLoop,
     resetGame: handleReset,
-    stepOnce: stepDemo
+    stepOnce: stepDemo,
+    muteAudio: (flag) => { if (window.audioManager) window.audioManager.setMuted(flag); }
   };
 })();

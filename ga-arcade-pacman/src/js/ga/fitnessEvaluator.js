@@ -1,10 +1,9 @@
-﻿/**
+/**
  * fitnessEvaluator.js
  * -------------------
- * Evalúa el fitness de un cromosoma ejecutando episodios sin render.
- * Construye la política desde el cromosoma, simula episodios con el simulador
+ * Eval�a el fitness de un cromosoma ejecutando episodios sin render.
+ * Construye la pol�tica desde el cromosoma, simula episodios con el simulador
  * y agrega recompensas para obtener un valor de fitness reproducible.
- * El fitness se clampa a un m�nimo de 0 para mantenerlo no negativo.
  */
 (function() {
   const POLICY = window.policyEncoding;
@@ -13,23 +12,23 @@
   const CONST = window.gameConstants;
 
   if (!POLICY || !SIM || !STATE || !CONST) {
-    console.warn('fitnessEvaluator: módulos requeridos no disponibles');
+    console.warn('fitnessEvaluator: m�dulos requeridos no disponibles');
     return;
   }
 
   /**
-   * Configuración por defecto para evaluar fitness.
-   * - episodesPerIndividual: cuántos episodios se simulan por cromosoma.
-   * - maxStepsPerEpisode: límite de pasos por episodio (usa stepLimit por defecto).
+   * Configuraci�n por defecto para evaluar fitness.
+   * - episodesPerIndividual: cu�ntos episodios se simulan por cromosoma.
+   * - maxStepsPerEpisode: l�mite de pasos por episodio (usa stepLimit por defecto).
    * - gamma: factor de descuento opcional (no aplicado a la recompensa base, reservado para ajustes futuros).
    * - baseSeed: semilla base para reproducibilidad de Math.random durante cada episodio.
    * - episodeSeeds: lista opcional de semillas por episodio; si existe se usa en lugar de derivar desde baseSeed.
-   * - stepPenalty: factor para castigar duraci�n (fitness -= stepPenalty * steps).
-   * - stallPenalty: penalizaci�n adicional por cada activaci�n de STALL.
+   * - stepPenalty: factor para castigar duraci?n (fitness -= stepPenalty * steps).
+   * - stallPenalty: penalizaci?n adicional por cada activaci?n de STALL.
    */
   const defaultFitnessConfig = {
     episodesPerIndividual: 5,
-    maxStepsPerEpisode: 10000,
+    maxStepsPerEpisode: 1000,
     gamma: 1,
     baseSeed: 12345,
     episodeSeeds: null,
@@ -42,11 +41,11 @@
     generationOffset: 0,
     disableCompletionBonus: false,
     stepPenalty: 0,
-    stallPenalty: 100
+    stallPenalty: 10
   };
 
   /**
-   * Normaliza/mezcla una configuración de fitness con valores por defecto.
+   * Normaliza/mezcla una configuraci�n de fitness con valores por defecto.
    * @param {Object} cfg
    * @returns {Object}
    */
@@ -71,9 +70,9 @@
   }
 
   /**
-   * Evalúa un solo episodio con una política derivada del cromosoma.
+   * Eval�a un solo episodio con una pol�tica derivada del cromosoma.
    * @param {number[]} chromosome Vector de genes.
-   * @param {Object} fitnessConfig Configuración de evaluación.
+   * @param {Object} fitnessConfig Configuraci�n de evaluaci�n.
    * @param {number} seed Semilla usada para Math.random durante el episodio.
    * @returns {{reward:number, steps:number, finalState:Object, status:string}}
    */
@@ -109,10 +108,8 @@
     if (stallPenalty && finalState.stallCount) {
       totalReward -= stallPenalty * finalState.stallCount;
     }
-    const clampedReward = Math.max(0, totalReward);
     return {
-      reward: clampedReward,
-      rawReward: totalReward,
+      reward: totalReward,
       steps: result.steps,
       finalState,
       status: finalState.status,
@@ -121,7 +118,7 @@
   }
 
   /**
-   * Evalúa un cromosoma ejecutando múltiples episodios y agregando recompensas.
+   * Eval�a un cromosoma ejecutando m�ltiples episodios y agregando recompensas.
    * Fitness principal = media de recompensas de episodios.
    * @param {number[]} chromosome
    * @param {Object} configOverrides
@@ -134,7 +131,7 @@
 
     const evalOnce = (seed, levelOverride) => {
       const ep = evaluateEpisode(chromosome, cfg, seed, levelOverride);
-      rewards.push(Math.max(0, ep.reward));
+      rewards.push(ep.reward);
       episodes.push(ep);
     };
 
@@ -160,7 +157,7 @@
   function getEpisodeSeed(cfg, index) {
     if (cfg.episodeSeeds && cfg.episodeSeeds[index] != null) return cfg.episodeSeeds[index];
     const base = cfg.baseSeed >>> 0;
-    // LCG derivada por índice para estabilidad: seed_i = (base + i * 1013904223) mod 2^32
+    // LCG derivada por �ndice para estabilidad: seed_i = (base + i * 1013904223) mod 2^32
     return (base + (index * 1013904223)) >>> 0;
   }
 
@@ -176,9 +173,9 @@
   }
 
   /**
-   * Envuelve una ejecución usando una versión seeded de Math.random para reproducibilidad.
+   * Envuelve una ejecuci�n usando una versi�n seeded de Math.random para reproducibilidad.
    * @param {number} seed Semilla de 32 bits.
-   * @param {Function} fn Función a ejecutar con la semilla aplicada.
+   * @param {Function} fn Funci�n a ejecutar con la semilla aplicada.
    */
   function runWithSeed(seed, fn) {
     const originalRandom = Math.random;

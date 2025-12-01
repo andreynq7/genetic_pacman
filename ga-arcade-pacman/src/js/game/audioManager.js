@@ -17,7 +17,7 @@
   };
 
   const volumes = {
-    start: 0.5,
+    start: 0.4,
     eating: 0.2,
     ghostNormal: 0.15,
     ghostBlue: 0.15,
@@ -27,9 +27,13 @@
   };
 
   const sounds = {};
+  let preloadPromise = null;
+  let soundsReady = false;
+  let startPrimed = false;
   let ghostLoop = 'ghostNormal';
   let powerActive = false;
   let lifeSeqRunning = false;
+  let muted = false;
 
   function createAudio(name, { loop = false } = {}) {
     const src = SOUND_PATH + sources[name];
@@ -41,10 +45,18 @@
     return audio;
   }
 
-  function loadAll() {
+  function ensureSoundsCreated() {
+    if (Object.keys(sounds).length) return;
     Object.keys(sources).forEach((key) => {
-      sounds[key] = createAudio(key, { loop: key === 'eating' || key === 'ghostNormal' || key === 'ghostBlue' });
+      if (!sounds[key]) {
+        sounds[key] = createAudio(key, { loop: key === 'eating' || key === 'ghostNormal' || key === 'ghostBlue' });
+      }
     });
+  }
+
+  function loadAll() {
+    if (preloadPromise) return preloadPromise;
+    ensureSoundsCreated();
     const promises = Object.values(sounds).map((a) => new Promise((resolve) => {
       const done = () => {
         a.removeEventListener('canplaythrough', done);
@@ -54,7 +66,43 @@
       a.addEventListener('canplaythrough', done, { once: true });
       a.addEventListener('error', done, { once: true });
     }));
-    return Promise.all(promises).catch((e) => console.warn('[audio] error en pre-carga', e));
+    preloadPromise = Promise.all(promises).then(() => { soundsReady = true; return true; }).catch((e) => {
+      console.warn('[audio] error en pre-carga', e);
+      return false;
+    });
+    return preloadPromise;
+  }
+
+  async function ensurePreloaded() {
+    ensureSoundsCreated();
+    try {
+      await loadAll();
+    } catch (e) {
+      console.warn('[audio] precarga', e?.message || e);
+    }
+  }
+
+  async function warmStartBuffer() {
+    await ensurePreloaded();
+    const a = sounds.start;
+    if (!a || startPrimed) return;
+    const prevMuted = a.muted;
+    try {
+      a.muted = true;
+      a.currentTime = 0;
+      await a.play();
+      a.pause();
+      a.currentTime = 0;
+      startPrimed = true;
+    } catch (e) {
+      console.warn('[audio] warm start', e?.message || e);
+    } finally {
+      a.muted = prevMuted;
+    }
+  }
+
+  function primeForInstantStart() {
+    return warmStartBuffer();
   }
 
   function stop(audio) {
@@ -66,6 +114,7 @@
   function startLoop(name) {
     const a = sounds[name];
     if (!a) return;
+    applyMutedFlag(a);
     if (!a.loop) a.loop = true;
     a.currentTime = 0;
     a.play().catch((e) => console.warn('[audio] play loop', name, e?.message || e));
@@ -73,6 +122,10 @@
 
   function stopLoop(name) {
     stop(sounds[name]);
+  }
+
+  function stopStartMusic() {
+    stop(sounds.start);
   }
 
   function playOnce(name) {
@@ -107,6 +160,22 @@
     ['eating', 'ghostNormal', 'ghostBlue'].forEach(stopLoop);
   }
 
+  function stopAllSounds() {
+    Object.values(sounds).forEach(stop);
+    ghostLoop = 'ghostNormal';
+    powerActive = false;
+  }
+
+  function applyMutedFlag(audio) {
+    if (!audio) return;
+    audio.muted = muted;
+  }
+
+  function setMuted(flag) {
+    muted = !!flag;
+    Object.values(sounds).forEach(applyMutedFlag);
+  }
+
   function setGhostLoop(to) {
     // Siempre intenta arrancar el loop solicitado; si cambia, detiene el previo.
     if (ghostLoop !== to) {
@@ -117,25 +186,41 @@
   }
 
   function playStartSequence() {
-    stopAllLoops();
-    const startAudio = sounds.start;
-    if (!startAudio) return Promise.resolve();
-    return new Promise((resolve) => {
-      startAudio.loop = false;
-      startAudio.currentTime = 0;
-      const onEnd = () => {
-        startAudio.removeEventListener('ended', onEnd);
-        resolve();
-      };
-      startAudio.addEventListener('ended', onEnd);
-      startAudio.play().catch((e) => {
-        console.warn('[audio] start music', e?.message || e);
-        resolve();
+    return warmStartBuffer().then(() => {
+      stopAllLoops();
+      const startAudio = sounds.start;
+      if (!startAudio) return Promise.resolve();
+      return new Promise((resolve) => {
+        startAudio.loop = false;
+        startAudio.currentTime = 0;
+        const onEnd = () => {
+          startAudio.removeEventListener('ended', onEnd);
+          resolve();
+        };
+        startAudio.addEventListener('ended', onEnd);
+        startAudio.play().catch((e) => {
+          console.warn('[audio] start music', e?.message || e);
+          resolve();
+        });
       });
     });
   }
 
+  function playStartMusic() {
+    return warmStartBuffer().then(() => {
+      stopStartMusic();
+      stopAllLoops();
+      const a = sounds.start;
+      if (!a) return Promise.resolve();
+      applyMutedFlag(a);
+      a.loop = false;
+      a.currentTime = 0;
+      return a.play().catch((e) => console.warn('[audio] start-music', e?.message || e));
+    });
+  }
+
   function startGameplayLoops(state) {
+    ensurePreloaded();
     stopAllLoops();
     startLoop('eating');
     const power = state?.powerTimer > 0;
@@ -145,6 +230,7 @@
 
   function handleStep(state, info = {}) {
     if (info.lifeLost && !lifeSeqRunning) {
+      stopStartMusic();
       handleLifeLostSequence(state);
       return;
     }
@@ -174,6 +260,7 @@
     if (lifeSeqRunning) return;
     lifeSeqRunning = true;
     stopAllLoops();
+    stopStartMusic();
     await playOnceWithEnd('miss');
     await playStartSequence();
     startGameplayLoops(state);
@@ -181,19 +268,23 @@
   }
 
   function resetAll() {
-    Object.values(sounds).forEach(stop);
-    powerActive = false;
-    ghostLoop = 'ghostNormal';
+    stopAllSounds();
     lifeSeqRunning = false;
   }
 
   window.audioManager = {
     loadAll,
     playStartSequence,
+    playStartMusic,
     startGameplayLoops,
     handleStep,
     handleLifeLostSequence,
     stopAllLoops,
-    resetAll
+    resetAll,
+    stopStartMusic,
+    stopAllSounds,
+    setMuted,
+    primeForInstantStart,
+    ensurePreloaded
   };
 })();

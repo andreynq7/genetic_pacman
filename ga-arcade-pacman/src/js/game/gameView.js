@@ -23,27 +23,27 @@
     'W..........................W',
     'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
     'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
-    'W......WW....WW....WW......W',
-    'WWWWWW.WWWWW WW WWWWW.WWWWWW',
-    'WWWWWW.WWWWW WW WWWWW.WWWWWW',
-    'WWWWWW.WW          WW.WWWWWW',
-    'WWWWWW.WW WWGGGGWW WW.WWWWWW',
-    'WWWWWW.WW WWWWWWWW WW.WWWWWW',
-    'W............WW............W',
-    'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+    'W......WW..........WW......W',
+    'W.WWWW.WWWWW WW WWWWW.WWWW.W',
+    'W...WW.WWWWW WW WWWWW.WW...W',
+    'WWW.WW....        ....WW.WWW',
+    'WWW.WW.WW.WWGGGGWW.WW.WW.WWW',
+    'WWW.WW.WW.WWCCCCWW.WW.WW.WWW',
+    'W.........WWWWWWWW.........W',
+    'W.WWWW.WW....WW....WW.WWWW.W',
     'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
     'Wo..WW................WW..oW',
     'WWW.WW.WW.WWWWWWWW.WW.WW.WWW',
     'WWW.WW.WW.WWWWWWWW.WW.WW.WWW',
     'W......WW....WW....WW......W',
-    'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
-    'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+    'W.WWWW....WW.WW.WW....WWWW.W',
+    'W.WWWWW.WWWW.WW.WWWW.WWWWW.W',
     'W............WW............W',
-    'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
-    'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+    'W.WWWW.WW.WW.WW.WW.WW.WWWW.W',
+    'W.WWWW.WW.WW.WW.WW.WW.WWWW.W',
     'W.....o......WW......o.....W',
-    'WoWWWWWWWWWW.WW.WWWWWWWWWWoW',
-    'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+    'WoWW.WWWWWWW.WW.WWWWWWW.WWoW',
+    'W.WW.WWWWWWW.WW.WWWWWWW.WW.W',
     'W..............P...........W',
     'WWWWWWWWWWWWWWWWWWWWWWWWWWWW'
   ];
@@ -54,6 +54,7 @@
     POWER: 'o',
     PATH: ' ',
     GHOST_GATE: 'G',
+    GHOST_CONTAINER: 'C',
     PACMAN_SPAWN: 'P'
   };
 
@@ -188,8 +189,9 @@
         ctx.fill();
       }
     }
-    if (state.ghosts && state.ghosts.length) {
-      state.ghosts.forEach((ghost, idx) => {
+    const renderGhosts = collectRenderableGhosts(state);
+    if (renderGhosts.length) {
+      renderGhosts.forEach((ghost, idx) => {
         const { x, y } = gridToPixelLerped(ghost.prevCol ?? ghost.col, ghost.prevRow ?? ghost.row, ghost.col, ghost.row, alpha);
         const stepCount = state?.steps || 0;
         if (ghost.eyeState) {
@@ -276,6 +278,22 @@
 
   function isGhostGate(col, row) {
     return getTile(col, row) === TILE_TYPES.GHOST_GATE;
+  }
+
+  function collectRenderableGhosts(state) {
+    const seen = new Set();
+    const list = [];
+    const addGhost = (ghost) => {
+      if (!ghost) return;
+      const id = ghost.id || `${ghost.col},${ghost.row}`;
+      if (seen.has(id)) return;
+      seen.add(id);
+      list.push(ghost);
+    };
+    (state.ghosts || []).forEach(addGhost);
+    const waiting = (state.ghostPen && state.ghostPen.length) ? state.ghostPen : (state.pendingGhosts || []);
+    waiting.forEach(addGhost);
+    return list;
   }
 
   function getMapDimensions() {
@@ -422,30 +440,19 @@
       if (eyeSprite?.ready) return eyeSprite;
     }
     if (frightened) {
+      const warnBlink = ghost.frightenedWarning && ((stepCount || 0) % 8) >= 4;
+      const colorWarn = verifyGhostColor(ghost, idx);
+      const warnSprite = warnBlink ? pickDirSprite(ghostSprites[colorWarn], ghost?.dir, animPhase) : null;
+      if (warnSprite?.ready) return warnSprite;
       const s = ghostSprites.scared[animPhase] || ghostSprites.scared[0];
       if (s?.ready) return s;
       const alt = ghostSprites.scared[0];
       if (alt?.ready) return alt;
     }
     const color = verifyGhostColor(ghost, idx);
-    const dir = ghost?.dir || 'LEFT';
     const set = ghostSprites[color];
-    if (set) {
-      const dirKey = set[dir] ? dir : (set.LEFT ? 'LEFT' : (set.RIGHT ? 'RIGHT' : (set.UP ? 'UP' : (set.DOWN ? 'DOWN' : null))));
-      if (dirKey && set[dirKey]) {
-        const s = set[dirKey][animPhase] || set[dirKey][0];
-        if (s?.ready) return s;
-        if (set[dirKey][0]?.ready) return set[dirKey][0];
-        if (set[dirKey][1]?.ready) return set[dirKey][1];
-      }
-      const anyDir = set.LEFT || set.RIGHT || set.UP || set.DOWN;
-      if (anyDir) {
-        const s = anyDir[animPhase] || anyDir[0];
-        if (s?.ready) return s;
-        if (anyDir[0]?.ready) return anyDir[0];
-        if (anyDir[1]?.ready) return anyDir[1];
-      }
-    }
+    const sprite = pickDirSprite(set, ghost?.dir, animPhase);
+    if (sprite) return sprite;
     return defaultGhostSprite?.ready ? defaultGhostSprite : null;
   }
 
@@ -466,6 +473,25 @@
       ghost.color = ghost.originalColor;
     }
     return ghost.color;
+  }
+
+  function pickDirSprite(set, dir, animPhase) {
+    if (!set) return null;
+    const dirKey = set[dir] ? dir : (set.LEFT ? 'LEFT' : (set.RIGHT ? 'RIGHT' : (set.UP ? 'UP' : (set.DOWN ? 'DOWN' : null))));
+    if (dirKey && set[dirKey]) {
+      const s = set[dirKey][animPhase] || set[dirKey][0];
+      if (s?.ready) return s;
+      if (set[dirKey][0]?.ready) return set[dirKey][0];
+      if (set[dirKey][1]?.ready) return set[dirKey][1];
+    }
+    const anyDir = set.LEFT || set.RIGHT || set.UP || set.DOWN;
+    if (anyDir) {
+      const s = anyDir[animPhase] || anyDir[0];
+      if (s?.ready) return s;
+      if (anyDir[0]?.ready) return anyDir[0];
+      if (anyDir[1]?.ready) return anyDir[1];
+    }
+    return null;
   }
 
   function getEyesSprite(ghost) {

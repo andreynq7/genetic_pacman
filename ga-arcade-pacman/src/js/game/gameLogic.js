@@ -25,6 +25,10 @@
     if (!next.levelSnapshot) {
       STATE.captureLevelSnapshot(next);
     }
+    if (next.status === 'respawning' || next.status === 'life_lost') {
+      const info = processRespawnCountdown(next);
+      return { state: next, reward: 0, done: false, info };
+    }
     if (next.status !== 'running') {
       return { state: next, reward: 0, done: true, info: { reason: next.status } };
     }
@@ -48,6 +52,8 @@
     reward += handleConsumables(next, events);
     const stallSteps = next.stepsSinceLastPellet;
     reward += applyStallPenalty(next);
+    updateGhostPen(next);
+    updateGhostSpawns(next, events);
     updateGhostModes(next);
     const hardStop = C.STALL?.HARD_STOP_THRESHOLD;
     if (hardStop && stallSteps >= hardStop) {
@@ -68,11 +74,6 @@
 
     updatePowerTimer(next);
 
-    // Si perdi� una vida pero le quedan, respawnea y sigue el episodio.
-    if (next.status === 'life_lost' && next.lives > 0) {
-      resetAfterLifeLost(next);
-    }
-
     const prevStatus = next.status;
     const done = computeDone(next);
     if (next.status === 'level_cleared' && prevStatus !== 'level_cleared') {
@@ -85,6 +86,7 @@
       lives: next.lives,
       lifeLossCount: next.lifeLossCount || 0,
       lifeLostThisStep: next.lifeLostThisStep || false,
+      respawnTimerSteps: next.respawnTimerSteps ?? 0,
       pelletEaten: events.pelletEaten,
       powerPelletEaten: events.powerPelletEaten,
       ghostEatenCount: events.ghostEatenCount,
@@ -295,6 +297,8 @@
         } else {
           state.lives -= 1;
           state.status = state.lives > 0 ? 'life_lost' : 'game_over';
+          state.respawnTimerSteps = state.lives > 0 ? (C.RESPAWN_DELAY_STEPS || 1) : 0;
+          state.pacman.alive = state.lives > 0 ? false : state.pacman.alive;
           reward += C.REWARDS.death;
           state.score += C.REWARDS.death;
           state.lifeLossCount = (state.lifeLossCount || 0) + 1;
@@ -306,6 +310,28 @@
     }
 
     return reward;
+  }
+
+  function processRespawnCountdown(state) {
+    const delay = C.RESPAWN_DELAY_STEPS || 1;
+    const current = (state.respawnTimerSteps == null || state.respawnTimerSteps <= 0) ? delay : state.respawnTimerSteps;
+    state.respawnTimerSteps = Math.max(0, current - 1);
+    const info = {
+      reason: state.respawnTimerSteps <= 0 ? 'running' : 'life_lost',
+      lives: state.lives,
+      lifeLost: true,
+      respawnTimerSteps: state.respawnTimerSteps
+    };
+    if (state.respawnTimerSteps <= 0) {
+      resetAfterLifeLost(state);
+      state.status = 'running';
+      state.pacman.alive = true;
+      info.reason = 'running';
+    } else {
+      state.status = 'life_lost';
+      state.pacman.alive = false;
+    }
+    return info;
   }
 
   /**
@@ -363,7 +389,14 @@
       const intersection = isIntersection(state.map, ghost.col, ghost.row, ghost.dir);
 
       let nextCell = null;
-      if (canForward && !intersection) {
+      if (isFrightenedState(ghost)) {
+        ghost.mode = C.GHOST_MODES.FRIGHTENED;
+        const choice = chooseFrightenedMove(state, ghost, options);
+        if (choice) {
+          nextCell = { col: choice.col, row: choice.row };
+          ghost.dir = choice.action;
+        }
+      } else if (canForward && !intersection) {
         nextCell = forwardCell;
       } else {
         const target = computeGhostTarget(state, ghost);
@@ -420,10 +453,217 @@
   }
 
   function ghostShouldMove(state, ghost) {
-    if (ghost.frightenedTimer > 0 || (state.powerTimer > 0 && !ghost.returningToHome)) {
-      return (state.steps % 2) === 0;
+    if (ghost.waitingToRespawn) return false;
+    updateGhostSpeedTowardsTarget(ghost);
+    ghost.moveAccumulator = (ghost.moveAccumulator || 0) + (ghost.speedFactor || 1);
+    if (ghost.moveAccumulator >= 1) {
+      ghost.moveAccumulator -= 1;
+      return true;
     }
-    return true;
+    return false;
+  }
+
+  function updateGhostSpawns(state, events) {
+    if (!state.pendingGhosts || !state.pendingGhosts.length) return;
+    state.nextGhostSpawnSteps = (state.nextGhostSpawnSteps ?? state.ghostSpawnIntervalSteps ?? 1) - 1;
+    if (state.nextGhostSpawnSteps > 0) return;
+    if (hasGhostContainer(state)) {
+      scheduleGhostExit(state, events);
+    } else {
+      spawnNextGhost(state, events);
+    }
+    state.nextGhostSpawnSteps = state.pendingGhosts.length ? (state.ghostSpawnIntervalSteps || 1) : 0;
+  }
+
+  function hasGhostContainer(state) {
+    const cells = state.ghostContainerCells || state.levelSnapshot?.ghostContainerCells || [];
+    if (Array.isArray(cells) && cells.length > 0) return true;
+    return Array.isArray(state.ghostPen) && state.ghostPen.length > 0;
+  }
+
+  function scheduleGhostExit(state, events) {
+    if (!state.pendingGhosts || !state.pendingGhosts.length) return;
+    const next = state.pendingGhosts.shift();
+    if (!next) return;
+    prepareGhostForExit(state, next);
+    if (!Array.isArray(state.ghostPen)) state.ghostPen = [];
+    if (!state.ghostPen.find((g) => g.id === next.id)) {
+      state.ghostPen.push(next);
+    }
+    if (events) events.returningGhosts = (events.returningGhosts || 0);
+  }
+
+  function prepareGhostForExit(state, ghost) {
+    ghost.leavingPen = true;
+    ghost.penExitStep = 0;
+    ghost.penExitPath = computePenExitPath(state, ghost);
+    ghost.state = 'PEN';
+    ghost.eyeState = false;
+    ghost.waitingToRespawn = false;
+    ghost.returningToHome = false;
+    ghost.frightenedTimer = 0;
+    ghost.frightenedWarning = false;
+    ghost.eatenThisPower = false;
+    ghost.moveAccumulator = 0;
+    ghost.speedFactor = 1;
+    ghost.frightenedSpeedTarget = 1;
+  }
+
+  function spawnNextGhost(state, events) {
+    if (!state.pendingGhosts || !state.pendingGhosts.length) return;
+    const next = state.pendingGhosts.shift();
+    if (!next) return;
+    const spawn = state.ghostSpawnPoints?.[state.ghosts.length % (state.ghostSpawnPoints.length || 1)] || { col: next.col, row: next.row };
+    next.col = spawn.col;
+    next.row = spawn.row;
+    next.prevCol = spawn.col;
+    next.prevRow = spawn.row;
+    next.dir = C.ACTIONS.LEFT;
+    next.state = 'NORMAL';
+    next.eyeState = false;
+    next.waitingToRespawn = false;
+    next.returningToHome = false;
+    next.frightenedTimer = 0;
+    next.frightenedWarning = false;
+    next.eatenThisPower = false;
+    next.moveAccumulator = 0;
+    next.speedFactor = 1;
+    next.frightenedSpeedTarget = 1;
+    next.leavingPen = false;
+    next.penExitPath = null;
+    next.penExitStep = 0;
+    state.ghosts.push(next);
+    if (events) events.returningGhosts = (events.returningGhosts || 0);
+  }
+
+  function updateGhostPen(state) {
+    if (!state.ghostPen || !state.ghostPen.length) return;
+    if (!hasGhostContainer(state)) return;
+    const containerKeys = new Set((state.ghostContainerCells || []).map((cell) => key(cell.col, cell.row)));
+    const occupied = new Set();
+    state.ghostPen.forEach((ghost) => occupied.add(key(ghost.col, ghost.row)));
+    const shuffled = shuffleList(state.ghostPen);
+    const remaining = [];
+    shuffled.forEach((ghost) => {
+      occupied.delete(key(ghost.col, ghost.row));
+      const exited = ghost.leavingPen
+        ? stepPenExit(state, ghost, containerKeys, occupied)
+        : wanderPenGhost(state, ghost, containerKeys, occupied);
+      occupied.add(key(ghost.col, ghost.row));
+      if (exited) {
+        finalizeGhostExit(state, ghost);
+      } else {
+        remaining.push(ghost);
+      }
+    });
+    state.ghostPen = remaining;
+  }
+
+  function wanderPenGhost(state, ghost, containerKeys, occupied) {
+    const options = [
+      { col: ghost.col, row: ghost.row, action: ghost.dir },
+      { col: ghost.col + 1, row: ghost.row, action: C.ACTIONS.RIGHT },
+      { col: ghost.col - 1, row: ghost.row, action: C.ACTIONS.LEFT },
+      { col: ghost.col, row: ghost.row + 1, action: C.ACTIONS.DOWN },
+      { col: ghost.col, row: ghost.row - 1, action: C.ACTIONS.UP }
+    ].filter((pos) => containerKeys.has(key(pos.col, pos.row)));
+    const shuffledOpts = shuffleList(options);
+    const target = shuffledOpts.find((pos) => !occupied.has(key(pos.col, pos.row))) || options[0];
+    if (target) {
+      ghost.prevCol = ghost.col;
+      ghost.prevRow = ghost.row;
+      ghost.col = target.col;
+      ghost.row = target.row;
+      const dir = directionFromStep({ col: ghost.prevCol, row: ghost.prevRow }, target);
+      ghost.dir = target.action || dir || ghost.dir;
+      ghost.state = 'PEN';
+    }
+    return false;
+  }
+
+  function stepPenExit(state, ghost, containerKeys, occupied) {
+    if (!ghost.penExitPath || !ghost.penExitPath.length) {
+      ghost.penExitPath = computePenExitPath(state, ghost);
+      ghost.penExitStep = 0;
+    }
+    const path = ghost.penExitPath || [{ col: ghost.col, row: ghost.row }];
+    const nextIdx = Math.min((ghost.penExitStep || 0) + 1, path.length - 1);
+    const nextPos = path[nextIdx] || path[path.length - 1];
+    const targetKey = key(nextPos.col, nextPos.row);
+    if (occupied && occupied.has(targetKey)) {
+      return false;
+    }
+    ghost.prevCol = ghost.col;
+    ghost.prevRow = ghost.row;
+    ghost.col = nextPos.col;
+    ghost.row = nextPos.row;
+    const dir = directionFromStep({ col: ghost.prevCol, row: ghost.prevRow }, nextPos);
+    ghost.dir = dir || ghost.dir;
+    ghost.penExitStep = nextIdx;
+    const outsideContainer = !containerKeys.has(key(ghost.col, ghost.row));
+    const atGate = getTile(state.map, ghost.col, ghost.row) === T.GHOST_GATE;
+    return outsideContainer && !atGate;
+  }
+
+  function finalizeGhostExit(state, ghost) {
+    ghost.leavingPen = false;
+    ghost.penExitPath = null;
+    ghost.penExitStep = 0;
+    ghost.eyeState = false;
+    ghost.waitingToRespawn = false;
+    ghost.returningToHome = false;
+    ghost.frightenedTimer = 0;
+    ghost.frightenedWarning = false;
+    ghost.eatenThisPower = false;
+    ghost.moveAccumulator = 0;
+    ghost.speedFactor = 1;
+    ghost.frightenedSpeedTarget = 1;
+    ghost.mode = state.ghostMode ?? (C.GHOST_MODES?.SCATTER || 'SCATTER');
+    ghost.state = 'NORMAL';
+    if (!state.ghosts.find((g) => g.id === ghost.id)) {
+      state.ghosts.push(ghost);
+    }
+  }
+
+  function computePenExitPath(state, ghost) {
+    const outsideCandidates = [];
+    const gateCandidates = [];
+    (state.ghostSpawnPoints || []).forEach((gate) => {
+      const above = { col: gate.col, row: gate.row - 1 };
+      if (isWalkable(state.map, above.col, above.row, true)) {
+        outsideCandidates.push({ target: above, allowGate: true });
+      }
+      gateCandidates.push({ target: gate, allowGate: true });
+    });
+    const start = { col: ghost.col, row: ghost.row };
+    const pickBest = (list) => {
+      let best = null;
+      let bestLen = Infinity;
+      list.forEach((candidate) => {
+        const path = findPathAStar(state, start, candidate.target, { maxExplored: C.MAP_COLS * C.MAP_ROWS, allowGate: true });
+        if (path && path.length && path.length < bestLen) {
+          best = path;
+          bestLen = path.length;
+        }
+      });
+      return best;
+    };
+    const outsidePath = pickBest(outsideCandidates);
+    if (outsidePath && outsidePath.length) return outsidePath;
+    const gatePath = pickBest(gateCandidates);
+    if (gatePath && gatePath.length) return gatePath;
+    return [start];
+  }
+
+  function updateGhostSpeedTowardsTarget(ghost) {
+    const cfg = C.FRIGHTENED || {};
+    const accel = cfg.accel ?? 0.08;
+    const target = (ghost.state === 'FRIGHTENED' || ghost.state === 'FRIGHTENED_WARNING')
+      ? (ghost.frightenedSpeedTarget || cfg.speedMax || 0.7)
+      : 1;
+    const current = ghost.speedFactor ?? 1;
+    const next = current + (target - current) * accel;
+    ghost.speedFactor = Math.max(0.3, Math.min(1, next));
   }
 
   function updateGhostModes(state) {
@@ -455,6 +695,10 @@
 
   function computeGhostTarget(state, ghost) {
     const pac = state.pacman;
+    if (isFrightenedState(ghost)) {
+      ghost.mode = C.GHOST_MODES.FRIGHTENED;
+      return { col: ghost.col, row: ghost.row };
+    }
     if (ghost.returningToHome || ghost.waitingToRespawn) {
       const home = getGhostHome(ghost);
       ghost.mode = C.GHOST_MODES.SCATTER;
@@ -517,11 +761,23 @@
    * @param {Object} state
    */
   function setGhostsFrightened(state) {
-    const duration = powerDurationForLevel(state.level || 1);
+    const duration = frightenedDurationForLevel(state.level || 1);
     state.powerTimer = duration;
+    state.frightenedWarningSteps = Math.min(duration, C.FRIGHTENED_WARNING_STEPS || Math.max(1, Math.round((C.TIMING?.frightenedWarningMs || 3000) / STEP_MS)));
     state.ghosts.forEach((ghost) => {
+      if (ghost.returningToHome || ghost.waitingToRespawn || ghost.eyeState) {
+        ghost.frightenedTimer = 0;
+        return;
+      }
+      const targetSpeed = frightenedTargetSpeed(state.level || 1);
       ghost.frightenedTimer = duration;
+      ghost.frightenedWarning = false;
+      ghost.state = 'FRIGHTENED';
+      ghost.eyeState = false;
       ghost.eatenThisPower = false;
+      ghost.frightenedSpeedTarget = targetSpeed;
+      ghost.speedFactor = Math.min(ghost.speedFactor || 1, 1);
+      ghost.moveAccumulator = 0;
     });
   }
 
@@ -530,16 +786,38 @@
    * @param {Object} state
    */
   function updatePowerTimer(state) {
-    if (state.powerTimer > 0) {
-      state.powerTimer -= 1;
-      if (state.powerTimer <= 0) {
-        // Al expirar, los fantasmas recuperan letalidad total en siguiente power.
-        state.ghosts.forEach((ghost) => {
-          ghost.eatenThisPower = false;
-          ghost.frightenedTimer = 0;
-        });
-        invalidatePowerPathCache();
+    if (state.powerTimer <= 0) return;
+    state.powerTimer -= 1;
+    const warnSteps = state.frightenedWarningSteps || C.FRIGHTENED_WARNING_STEPS || Math.max(1, Math.round((C.TIMING?.frightenedWarningMs || 3000) / STEP_MS));
+    const warningActive = state.powerTimer <= warnSteps;
+    state.ghosts.forEach((ghost) => {
+      if (ghost.state === 'FRIGHTENED' || ghost.state === 'FRIGHTENED_WARNING') {
+        ghost.frightenedTimer = Math.max(0, state.powerTimer);
+        if (warningActive && ghost.state === 'FRIGHTENED') {
+          ghost.state = 'FRIGHTENED_WARNING';
+          ghost.frightenedWarning = true;
+        }
+        if (ghost.state === 'FRIGHTENED_WARNING' && warnSteps > 0) {
+          const warnProgress = 1 - (state.powerTimer / Math.max(1, warnSteps));
+          const target = ghost.frightenedSpeedTarget || 1;
+          const blended = target + (1 - target) * Math.min(1, warnProgress);
+          ghost.frightenedSpeedTarget = Math.min(1, blended);
+        }
       }
+    });
+    if (state.powerTimer <= 0) {
+      state.ghosts.forEach((ghost) => {
+        ghost.eatenThisPower = false;
+        ghost.frightenedTimer = 0;
+        ghost.frightenedWarning = false;
+        if (!ghost.returningToHome && !ghost.waitingToRespawn && !ghost.eyeState) {
+          ghost.state = 'NORMAL';
+          ghost.speedFactor = 1;
+          ghost.frightenedSpeedTarget = 1;
+          ghost.moveAccumulator = 0;
+        }
+      });
+      invalidatePowerPathCache();
     }
   }
 
@@ -580,14 +858,19 @@
     ghost.frightenedTimer = 0;
     ghost.eatenThisPower = true;
     ghost.eyeState = true;
+    ghost.state = 'EYES';
     ghost.dir = ghost.dir || C.ACTIONS.LEFT;
     ghost.color = ghost.originalColor || ghost.color;
     ghost.eyeBlinkStartStep = state?.steps || 0;
+    ghost.moveAccumulator = 0;
+    ghost.speedFactor = 1;
+    ghost.frightenedSpeedTarget = 1;
   }
 
   function startGhostRespawnWait(state, ghost, events) {
     ghost.returningToHome = false;
     ghost.waitingToRespawn = true;
+    ghost.state = 'RESPAWN_WAIT';
     ghost.respawnReleaseStep = (state.steps || 0) + RESPAWN_WAIT_STEPS;
     ghost.frightenedTimer = 0;
     if (events) events.ghostsReturned = (events.ghostsReturned || 0) + 1;
@@ -605,6 +888,10 @@
     ghost.prevCol = ghost.col;
     ghost.prevRow = ghost.row;
     ghost.mode = state.ghostMode ?? (C.GHOST_MODES?.SCATTER || 'SCATTER');
+    ghost.state = 'NORMAL';
+    ghost.speedFactor = 1;
+    ghost.frightenedSpeedTarget = 1;
+    ghost.moveAccumulator = 0;
   }
 
   function isWalkable(map, col, row, allowGate) {
@@ -690,6 +977,7 @@
     gScore[startKey] = 0;
     fScore[startKey] = manhattan(start.col, start.row, goal.col, goal.row);
     const goalIsGate = getTile(state.map, goal.col, goal.row) === T.GHOST_GATE;
+    const allowGate = options.allowGate ?? goalIsGate;
     let explored = 0;
     const maxExplored = options.maxExplored || Infinity;
     const maxRadius = options.maxRadius || Infinity;
@@ -702,7 +990,7 @@
       }
 
       open.delete(currentKey);
-      const neighbors = getValidMoves(state.map, cc, cr, goalIsGate);
+      const neighbors = getValidMoves(state.map, cc, cr, allowGate);
       neighbors.forEach((n) => {
         const nKey = key(n.col, n.row);
         const tentativeG = (gScore[currentKey] ?? Infinity) + 1;
@@ -756,12 +1044,16 @@
     return Math.abs(c1 - c2) + Math.abs(r1 - r2);
   }
 
+  function randBetween(min, max) {
+    return min + Math.random() * (max - min);
+  }
+
   // Selecciona un movimiento de fantasma con sesgo creciente a perseguir a Pac-Man seg�n nivel.
   function pickGhostMove(state, ghost, candidates) {
     if (!candidates.length) return { ...ghost, action: C.ACTIONS.STAY };
     // Si est� asustado, mantiene movimiento aleatorio para facilitar comerlo.
     if (ghost.frightenedTimer > 0) {
-      return candidates[Math.floor(Math.random() * candidates.length)];
+      return chooseFrightenedMove(state, ghost, candidates) || candidates[Math.floor(Math.random() * candidates.length)];
     }
     const level = state.level || 1;
     const prob = ghostChaseProbability(level);
@@ -778,6 +1070,52 @@
       return best;
     }
     return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  function chooseFrightenedMove(state, ghost, options) {
+    if (!options.length) return null;
+    const nonReverse = options.filter((opt) => opt.action !== oppositeDirection(ghost.dir));
+    const pool = nonReverse.length ? nonReverse : options;
+    const weights = pool.map((opt) => {
+      const pac = state?.pacman || { col: 0, row: 0 };
+      const currentDist = manhattan(ghost.col, ghost.row, pac.col, pac.row);
+      const nextDist = manhattan(opt.col, opt.row, pac.col, pac.row);
+      let w = 1;
+      // Prefiere alejarse de Pac-Man para ser menos agresivo.
+      if (nextDist > currentDist) w *= 1.6;
+      if (nextDist === currentDist) w *= 1.1;
+      if (nextDist < currentDist) w *= 0.4;
+      // Suaviza cambios bruscos y evita reversas casi por completo.
+      if (opt.action === ghost.dir) w *= 1.2;
+      if (opt.action === oppositeDirection(ghost.dir)) w *= 0.2;
+      if (opt.action === ghost.lastRandomDir) w *= 0.7;
+      w *= 0.9 + Math.random() * 0.2; // ligera variaci�n para no ser completamente determinista
+      return w;
+    });
+    const pick = weightedPick(pool, weights);
+    ghost.lastRandomDir = pick.action;
+    return pick;
+  }
+
+  function shuffleList(list) {
+    const arr = Array.isArray(list) ? list.slice() : [];
+    for (let i = arr.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
+    }
+    return arr;
+  }
+
+  function weightedPick(list, weights) {
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = Math.random() * (total || 1);
+    for (let i = 0; i < list.length; i += 1) {
+      r -= weights[i];
+      if (r <= 0) return list[i];
+    }
+    return list[list.length - 1];
   }
 
   function ghostChaseProbability(level) {
@@ -815,43 +1153,70 @@
     const ghostTemplates = (state.levelSnapshot?.ghosts && state.levelSnapshot.ghosts.length)
       ? state.levelSnapshot.ghosts
       : state.ghosts;
+    const penTemplates = (state.levelSnapshot?.ghostPen && state.levelSnapshot.ghostPen.length)
+      ? state.levelSnapshot.ghostPen
+      : null;
+    const pendingTemplates = (state.levelSnapshot?.pendingGhosts && state.levelSnapshot.pendingGhosts.length)
+      ? state.levelSnapshot.pendingGhosts
+      : (penTemplates || []);
     const spawnPoints = (state.ghostSpawnPoints && state.ghostSpawnPoints.length)
       ? state.ghostSpawnPoints
       : (state.levelSnapshot?.ghostSpawnPoints && state.levelSnapshot.ghostSpawnPoints.length
         ? state.levelSnapshot.ghostSpawnPoints
         : C.DEFAULTS.ghostSpawns);
 
-    state.ghosts = ghostTemplates.map((template, idx) => {
-      const spawn = spawnPoints[idx % spawnPoints.length] || spawnPoints[0];
-      const color = template.color || template.originalColor || palette[idx % palette.length];
-      const homeCol = template.homeCol ?? spawn.col;
-      const homeRow = template.homeRow ?? spawn.row;
-      return {
-        id: template.id || `ghost-${idx + 1}`,
-        color,
-        originalColor: template.originalColor || color,
-        col: spawn.col,
-        row: spawn.row,
-        prevCol: spawn.col,
-        prevRow: spawn.row,
-        dir: C.ACTIONS.LEFT,
-        frightenedTimer: 0,
-        eatenThisPower: false,
-        returningToHome: false,
-        waitingToRespawn: false,
-        respawnReleaseStep: null,
-        eyeBlinkStartStep: state.steps || 0,
-        eyeState: false,
-        homeCol,
-        homeRow,
-        mode: state.ghostMode ?? ((C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || (C.GHOST_MODES?.SCATTER) || 'SCATTER'),
-        speed: 1,
-        cornerCol: (C.GHOST_CORNERS?.[color]?.col) ?? homeCol,
-        cornerRow: (C.GHOST_CORNERS?.[color]?.row) ?? homeRow
-      };
-    });
+    if (penTemplates && penTemplates.length) {
+      state.ghostPen = cloneActors(penTemplates);
+      const penMap = new Map(state.ghostPen.map((g) => [g.id, g]));
+      state.pendingGhosts = pendingTemplates.map((g) => penMap.get(g.id) || { ...g });
+      state.ghosts = cloneActors(state.levelSnapshot?.ghosts || []);
+    } else {
+      state.ghosts = ghostTemplates.map((template, idx) => {
+        const spawn = spawnPoints[idx % spawnPoints.length] || spawnPoints[0];
+        const color = template.color || template.originalColor || palette[idx % palette.length];
+        const homeCol = template.homeCol ?? spawn.col;
+        const homeRow = template.homeRow ?? spawn.row;
+        return {
+          id: template.id || `ghost-${idx + 1}`,
+          color,
+          originalColor: template.originalColor || color,
+          col: spawn.col,
+          row: spawn.row,
+          prevCol: spawn.col,
+          prevRow: spawn.row,
+          dir: C.ACTIONS.LEFT,
+          frightenedTimer: 0,
+          frightenedWarning: false,
+          state: 'NORMAL',
+          speedFactor: 1,
+          moveAccumulator: 0,
+          frightenedSpeedTarget: 1,
+          leavingPen: false,
+          penExitPath: null,
+          penExitStep: 0,
+          eatenThisPower: false,
+          returningToHome: false,
+          waitingToRespawn: false,
+          respawnReleaseStep: null,
+          eyeBlinkStartStep: state.steps || 0,
+          eyeState: false,
+          homeCol,
+          homeRow,
+          mode: state.ghostMode ?? ((C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || (C.GHOST_MODES?.SCATTER) || 'SCATTER'),
+          speed: 1,
+          cornerCol: (C.GHOST_CORNERS?.[color]?.col) ?? homeCol,
+          cornerRow: (C.GHOST_CORNERS?.[color]?.row) ?? homeRow
+        };
+      });
+      state.pendingGhosts = pendingTemplates.map((g) => ({ ...g }));
+      state.ghostPen = [];
+    }
+    state.ghostSpawnIntervalSteps = state.ghostSpawnIntervalSteps ?? (C.GHOST_SPAWN_INTERVAL_STEPS || 1);
+    state.nextGhostSpawnSteps = state.pendingGhosts.length ? state.ghostSpawnIntervalSteps : 0;
+    state.respawnTimerSteps = 0;
     state.status = 'running';
     state.powerTimer = 0;
+    state.frightenedWarningSteps = C.FRIGHTENED_WARNING_STEPS;
     state.ghostModeIndex = state.ghostModeIndex ?? 0;
     state.ghostMode = state.ghostMode ?? ((C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || (C.GHOST_MODES?.SCATTER) || 'SCATTER');
     state.ghostModeTimer = state.ghostModeTimer ?? (C.SCATTER_CHASE_SCHEDULE?.[0]?.durationSteps || 0);
@@ -870,10 +1235,39 @@
     return Math.max(min, duration);
   }
 
+  function frightenedDurationForLevel(level) {
+    const lvl = Math.max(1, level);
+    const baseMinMs = C.TIMING?.frightenedDurationMinMs || 8000;
+    const baseMaxMs = C.TIMING?.frightenedDurationMaxMs || 12000;
+    const coherence = Math.max(0.25, 1 - (lvl - 1) * 0.06); // niveles altos: duraciones m�s consistentes y algo m�s cortas
+    const span = (baseMaxMs - baseMinMs) * coherence;
+    const minMs = baseMinMs;
+    const maxMs = baseMinMs + span;
+    const pickedMs = randBetween(minMs, maxMs);
+    const steps = Math.max(C.DIFFICULTY?.minPowerDuration ?? 1, Math.round(pickedMs / STEP_MS));
+    return steps;
+  }
+
+  function frightenedTargetSpeed(level) {
+    const cfg = C.FRIGHTENED || {};
+    const baseMin = cfg.speedMin ?? 0.6;
+    const baseMax = cfg.speedMax ?? 0.7;
+    const jitter = cfg.speedJitter ?? 0.1;
+    const jitterScale = Math.max(0.2, 1 - (Math.max(1, level) - 1) * 0.08);
+    const base = randBetween(baseMin, baseMax);
+    const offset = randBetween(-jitter, jitter) * jitterScale;
+    const target = base + offset;
+    return Math.max(0.5, Math.min(0.85, target));
+  }
+
   function isGhostLethal(state, ghost) {
     if (ghost.eyeState || ghost.waitingToRespawn || ghost.returningToHome) return false;
     const frightenedActive = (state.powerTimer > 0) && (ghost.frightenedTimer > 0) && !ghost.eatenThisPower;
     return !frightenedActive;
+  }
+
+  function isFrightenedState(ghost) {
+    return ghost.state === 'FRIGHTENED' || ghost.state === 'FRIGHTENED_WARNING';
   }
 
   function isPathSafeFromLethalGhosts(state, path, radius) {

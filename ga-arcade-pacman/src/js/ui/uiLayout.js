@@ -1,4 +1,4 @@
-﻿// Caches references to relevant DOM nodes used across UI modules.
+// Caches references to relevant DOM nodes used across UI modules.
 (function() {
   const refs = {};
 
@@ -12,8 +12,10 @@
       mutation: domHelpers.getById('mutation-input'),
       tournament: domHelpers.getById('tournament-input'),
       seed: domHelpers.getById('seed-input'),
-      fps: domHelpers.getById('fps-input'),
-      episodes: domHelpers.getById('episodes-input')
+      fps: null,
+      episodes: domHelpers.getById('episodes-input'),
+      workers: null,
+      chunk: null
     };
 
     refs.validation = {
@@ -37,7 +39,11 @@
       avg: domHelpers.getById('avg-fitness'),
       totalTime: domHelpers.getById('total-time'),
       avgTime: domHelpers.getById('avg-time'),
-      generation: domHelpers.getById('generation-count')
+      generation: domHelpers.getById('generation-count'),
+      workersActive: null,
+      chunkSizeUsed: null,
+      workersActiveDup: null,
+      chunkSizeUsedDup: null
     };
 
     refs.game = {
@@ -50,6 +56,9 @@
       metricsCanvas: domHelpers.getById('metrics-canvas'),
       context: null
     };
+
+    refs.tabs = null;
+    refs.workers = null;
   }
 
   function getRefs() {

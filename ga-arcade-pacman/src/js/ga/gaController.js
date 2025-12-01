@@ -27,9 +27,10 @@
     workerPool: null,
     workerOptions: {
       enabled: true,
-      size: null,
-      chunkSize: 12
-    }
+      size: 8,
+      chunkSize: null
+    },
+    workerStats: { poolSize: null, chunkSize: null }
   };
 
   /**
@@ -57,6 +58,15 @@
     runState.gaConfig = gaConfig;
     runState.fitnessConfig = fitnessConfig;
     runState.gaState = GA.createGAState(gaConfig);
+    const hw = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 8;
+    const maxWorkers = Math.max(1, Math.min(32, hw));
+    const rawSize = uiConfig.workerSize;
+    const validatedSize = Math.max(1, Math.min(maxWorkers, Math.floor(Number.isFinite(rawSize) ? rawSize : (runState.workerOptions.size || 8))));
+    const rawChunk = uiConfig.chunkSize;
+    const validatedChunk = (Number.isFinite(rawChunk) && rawChunk > 0) ? Math.floor(rawChunk) : null;
+    runState.workerOptions.size = validatedSize;
+    runState.workerOptions.chunkSize = validatedChunk;
+    console.log('[workers] config', { enabled: runState.workerOptions.enabled, size: runState.workerOptions.size, chunk: runState.workerOptions.chunkSize });
     runState.status = 'idle';
     runState.maxGenerations = gaConfig.generations;
     runState.timing = { totalMs: 0, perGen: [] };
@@ -100,6 +110,11 @@
     runState.status = 'idle';
     runState.timing = { totalMs: 0, perGen: [] };
     clearLoop();
+    if (runState.workerPool && runState.workerPool.terminate) {
+      try { runState.workerPool.terminate(); } catch (e) {}
+      runState.workerPool = null;
+      ensureWorkerPool();
+    }
   }
 
   /**
@@ -131,10 +146,12 @@
     if (!runState.workerOptions.enabled) return null;
     if (runState.workerPool) return runState.workerPool;
     if (!window.gaWorkerPool || !gaWorkerPool.createWorkerPool) return null;
-    runState.workerPool = gaWorkerPool.createWorkerPool({
+    const opts = {
       size: runState.workerOptions.size || undefined,
       chunkSize: runState.workerOptions.chunkSize
-    });
+    };
+    console.log('[workers] create pool', opts);
+    runState.workerPool = gaWorkerPool.createWorkerPool(opts);
     return runState.workerPool;
   }
 
@@ -159,9 +176,14 @@
     });
     if (!tasks.length) return;
     notifyProgress({ stage: 'evaluation', completed: 0, total: tasks.length, generation });
+    const poolSize = pool.size || runState.workerOptions.size || 8;
+    const uiChunk = runState.workerOptions.chunkSize || 0;
+    const dynamicChunk = uiChunk > 0 ? uiChunk : Math.max(4, Math.ceil(tasks.length / (poolSize * 2)));
+    runState.workerStats.poolSize = pool.size || runState.workerOptions.size || 8;
+    runState.workerStats.chunkSize = uiChunk > 0 ? uiChunk : dynamicChunk;
     const results = await pool.evaluateChromosomes(tasks, {
       generation,
-      chunkSize: runState.workerOptions.chunkSize
+      chunkSize: dynamicChunk
     });
     results.forEach((res) => {
       const target = gaState.population[res.index];
@@ -213,8 +235,11 @@
       history: runState.gaState.history,
       totalTimeMs: runState.timing.totalMs,
       avgTimeMs: runState.timing.totalMs / runState.gaState.generation,
-      metrics: runState.gaState.lastMetrics
+      metrics: runState.gaState.lastMetrics,
+      workerPoolSize: useWorkers ? runState.workerStats.poolSize : null,
+      workerChunkSize: useWorkers ? runState.workerStats.chunkSize : null
     };
+    console.log('[ga] gen', { gen: info.generation, useWorkers, workerPoolSize: info.workerPoolSize, workerChunkSize: info.workerChunkSize });
 
     if (runState.callbacks.onGeneration) {
       runState.callbacks.onGeneration(info);
@@ -249,6 +274,10 @@
   function finish() {
     clearLoop();
     runState.status = 'finished';
+    if (runState.workerPool && runState.workerPool.terminate) {
+      try { runState.workerPool.terminate(); } catch (e) {}
+      runState.workerPool = null;
+    }
     if (runState.callbacks.onFinish) {
       runState.callbacks.onFinish({
         bestEver: runState.gaState?.bestEver,
@@ -316,6 +345,30 @@
     return runState.gaState?.metricsHistory || [];
   }
 
+  function setWorkersEnabled(flag) {
+    const enabled = !!flag;
+    runState.workerOptions.enabled = enabled;
+    if (!enabled && runState.workerPool && runState.workerPool.terminate) {
+      try { runState.workerPool.terminate(); } catch (e) {}
+      runState.workerPool = null;
+      runState.workerStats.poolSize = null;
+      runState.workerStats.chunkSize = null;
+      console.log('[workers] disabled');
+    }
+    if (enabled && !runState.workerPool) {
+      console.log('[workers] enabled');
+      ensureWorkerPool();
+    }
+  }
+
+  function getWorkerOptions() {
+    return { ...runState.workerOptions };
+  }
+
+  function getWorkerStats() {
+    return { ...runState.workerStats };
+  }
+
   window.gaController = {
     initializeFromUI,
     start,
@@ -331,6 +384,9 @@
     getStatus,
     getHistory,
     getTiming,
-    getMetricsHistory
+    getMetricsHistory,
+    setWorkersEnabled,
+    getWorkerOptions,
+    getWorkerStats
   };
 })();

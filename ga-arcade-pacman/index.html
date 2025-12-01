@@ -54,14 +54,11 @@
           <input type="number" id="seed-input" name="seed" step="1" placeholder="Ej. 42">
         </div>
         <div class="form-group">
-          <label for="fps-input">FPS de simulación</label>
-          <input type="number" id="fps-input" name="fps" min="1" step="1" placeholder="Ej. 60">
-        </div>
-        <div class="form-group">
           <label for="episodes-input">Episodios por individuo</label>
           <input type="number" id="episodes-input" name="episodes" min="1" step="1" placeholder="Ej. 3">
         </div>
-        <div class="form-note">Usa esta etapa solo para probar la UI. Los cálculos reales llegarán después.</div>
+
+
         <div id="percentage-error" class="error-message hidden">La suma de porcentajes debe ser 100%.</div>
       </form>
     </section>
@@ -69,7 +66,6 @@
     <section class="panel panel-center">
       <div class="panel-header">
         <h2>Área de juego</h2>
-        <p class="panel-hint">Canvas placeholder con laberinto básico.</p>
       </div>
       <div class="game-area">
         <canvas id="game-canvas" width="448" height="496"></canvas>
@@ -91,49 +87,52 @@
     </section>
 
     <section class="panel panel-right">
-      <div class="panel-section">
-        <h2>Controles</h2>
-        <div class="controls-grid">
-          <button type="button" id="start-btn" class="btn primary">Start</button>
-          <button type="button" id="pause-btn" class="btn">Pause</button>
-          <button type="button" id="extend-btn" class="btn">Extender GA</button>
-          <button type="button" id="reset-btn" class="btn">Reset</button>
-          <button type="button" id="demo-btn" class="btn ghost">Demo best</button>
-          <button type="button" id="export-best-btn" class="btn">Export Best</button>
-          <button type="button" id="export-run-btn" class="btn">Export Run Data</button>
+      <div class="panel-section-group">
+        <div class="panel-section">
+          <h2>Controles</h2>
+          <div class="controls-grid">
+            <button type="button" id="start-btn" class="btn primary">Start</button>
+            <button type="button" id="pause-btn" class="btn">Pause</button>
+            <button type="button" id="extend-btn" class="btn">Extender GA</button>
+            <button type="button" id="reset-btn" class="btn">Reset</button>
+            <button type="button" id="demo-btn" class="btn ghost">Demo best</button>
+            <button type="button" id="export-best-btn" class="btn">Export Best</button>
+            <button type="button" id="export-run-btn" class="btn">Export Run Data</button>
+          </div>
         </div>
-      </div>
 
-      <div class="panel-section">
-        <h2>Métricas en vivo</h2>
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <span class="metric-label">Mejor fitness</span>
-            <span id="best-fitness" class="metric-value">--</span>
+        <div class="panel-section">
+          <h2>Métricas en vivo</h2>
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <span class="metric-label">Mejor fitness</span>
+              <span id="best-fitness" class="metric-value">--</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Fitness promedio</span>
+              <span id="avg-fitness" class="metric-value">--</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Tiempo total</span>
+              <span id="total-time" class="metric-value">--</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Tiempo promedio/gen</span>
+              <span id="avg-time" class="metric-value">--</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Generación</span>
+              <span id="generation-count" class="metric-value">--</span>
+            </div>
+
           </div>
-          <div class="metric-card">
-            <span class="metric-label">Fitness promedio</span>
-            <span id="avg-fitness" class="metric-value">--</span>
+          <div class="metrics-graph">
+            <div class="graph-header">
+              <span>Fitness (Mejor vs Promedio)</span>
+              <span class="graph-note">Evolución del entrenamiento</span>
+            </div>
+            <canvas id="metrics-canvas" width="360" height="180"></canvas>
           </div>
-          <div class="metric-card">
-            <span class="metric-label">Tiempo total</span>
-            <span id="total-time" class="metric-value">--</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Tiempo promedio/gen</span>
-            <span id="avg-time" class="metric-value">--</span>
-          </div>
-          <div class="metric-card">
-            <span class="metric-label">Generación</span>
-            <span id="generation-count" class="metric-value">--</span>
-          </div>
-        </div>
-        <div class="metrics-graph">
-          <div class="graph-header">
-            <span>Fitness (Mejor vs Promedio)</span>
-            <span class="graph-note">Evolución del entrenamiento</span>
-          </div>
-          <canvas id="metrics-canvas" width="360" height="180"></canvas>
         </div>
       </div>
     </section>
@@ -155,7 +154,7 @@
 <script src="./src/js/game/gameConstants.js"></script>
 <script src="./src/js/game/gameState.js"></script>
 <script src="./src/js/game/gameLogic.js"></script>
-<script src="./src/js/game/episodeSimulator.js"></script> 
+<script src="./src/js/game/episodeSimulator.js"></script>
 <script src="./src/js/game/audioManager.js"></script>
 <script src="./src/js/agent/policyEncoding.js"></script>
 <script src="./src/js/ga/fitnessEvaluator.js"></script>

@@ -1,16 +1,18 @@
-﻿// Basic form handling for parameter inputs.
+// Basic form handling for parameter inputs.
 (function() {
   function applyDefaults(refs, config) {
     if (!refs || !refs.inputs || !config) return;
-    refs.inputs.population.value = config.populationSize ?? '';
-    refs.inputs.generations.value = config.generations ?? '';
-    refs.inputs.selection.value = config.selectionRate ?? '';
-    refs.inputs.crossover.value = config.crossoverRate ?? '';
-    refs.inputs.mutation.value = config.mutationRate ?? '';
-    refs.inputs.tournament.value = config.tournamentSize ?? '';
-    refs.inputs.seed.value = config.randomSeed ?? '';
-    refs.inputs.fps.value = config.simulationFps ?? '';
-    refs.inputs.episodes.value = config.episodesPerIndividual ?? '';
+    if (refs.inputs.population) refs.inputs.population.value = config.populationSize ?? '';
+    if (refs.inputs.generations) refs.inputs.generations.value = config.generations ?? '';
+    if (refs.inputs.selection) refs.inputs.selection.value = config.selectionRate ?? '';
+    if (refs.inputs.crossover) refs.inputs.crossover.value = config.crossoverRate ?? '';
+    if (refs.inputs.mutation) refs.inputs.mutation.value = config.mutationRate ?? '';
+    if (refs.inputs.tournament) refs.inputs.tournament.value = config.tournamentSize ?? '';
+    if (refs.inputs.seed) refs.inputs.seed.value = config.randomSeed ?? '';
+    if (refs.inputs.fps) refs.inputs.fps.value = config.simulationFps ?? '';
+    if (refs.inputs.episodes) refs.inputs.episodes.value = config.episodesPerIndividual ?? '';
+    if (refs.inputs.workers) refs.inputs.workers.value = config.workerSize ?? '';
+    if (refs.inputs.chunk) refs.inputs.chunk.value = config.chunkSize ?? '';
   }
 
   /**
@@ -34,7 +36,9 @@
       tournamentSize: getNum(refs.inputs.tournament, fallback.tournamentSize ?? 3),
       randomSeed: getNum(refs.inputs.seed, fallback.randomSeed ?? 1234),
       episodesPerIndividual: getNum(refs.inputs.episodes, fallback.episodesPerIndividual ?? 3),
-      maxStepsPerEpisode: fallback.maxStepsPerEpisode ?? (window.gameConstants?.DEFAULTS?.stepLimit || 2000)
+      maxStepsPerEpisode: fallback.maxStepsPerEpisode ?? (window.gameConstants?.DEFAULTS?.stepLimit || 2000),
+      workerSize: getNum(refs.inputs.workers, fallback.workerSize ?? 8),
+      chunkSize: getNum(refs.inputs.chunk, fallback.chunkSize ?? 0)
     };
   }
 

@@ -61,6 +61,18 @@
     return fallback.map((p) => ({ ...p }));
   }
 
+  function findGhostContainerCells(matrix) {
+    const positions = [];
+    for (let r = 0; r < matrix.length; r += 1) {
+      for (let c = 0; c < matrix[r].length; c += 1) {
+        if (matrix[r][c] === T.GHOST_CONTAINER) {
+          positions.push({ col: c, row: r });
+        }
+      }
+    }
+    return positions;
+  }
+
   /**
    * Cuenta pellets y power pellets existentes en el mapa.
    * @param {string[][]} matrix
@@ -90,6 +102,8 @@
     const matrix = normalizeLevel(options.levelMap);
     const pacSpawn = findPacmanSpawn(matrix, options.pacmanSpawn || C.DEFAULTS.pacmanSpawn);
     const ghostSpawns = findGhostSpawns(matrix, options.ghostSpawns || C.DEFAULTS.ghostSpawns);
+    const ghostContainerCells = findGhostContainerCells(matrix);
+    const hasGhostContainer = ghostContainerCells.length > 0;
     const level = options.level ?? 1;
     const palette = ['red', 'pink', 'blue', 'orange'];
 
@@ -126,11 +140,15 @@
       levelSnapshot: null,
       stallCount: 0,
       lifeLostThisStep: false,
+      respawnTimerSteps: 0,
       ghostModeIndex: 0,
       ghostMode: (C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || C.GHOST_MODES?.SCATTER || 'SCATTER',
       ghostModeTimer: (C.SCATTER_CHASE_SCHEDULE?.[0]?.durationSteps) || 0,
+      frightenedWarningSteps: C.FRIGHTENED_WARNING_STEPS,
       pacmanSpawn: { ...pacSpawn },
       ghostSpawnPoints: ghostSpawns.map((p) => ({ ...p })),
+      ghostContainerCells,
+      ghostPen: [],
       pacman: {
         col: pacSpawn.col,
         row: pacSpawn.row,
@@ -139,16 +157,37 @@
         dir: C.ACTIONS.LEFT,
         alive: true
       },
-      ghosts: ghostSpawns.map((pos, idx) => ({
-        id: `ghost-${idx + 1}`,
-        color: palette[idx % palette.length],
-        originalColor: palette[idx % palette.length],
-        col: pos.col,
-        row: pos.row,
-        prevCol: pos.col,
-        prevRow: pos.row,
+      ghostSpawnIntervalSteps: options.ghostSpawnIntervalSteps || C.GHOST_SPAWN_INTERVAL_STEPS || 1,
+      nextGhostSpawnSteps: 0,
+      pendingGhosts: [],
+      ghosts: []
+    };
+
+    // Construir colas de fantasmas (primero entra inmediato, resto pendientes)
+    const maxGhosts = Math.max(ghostSpawns.length, palette.length);
+    const templates = [];
+    for (let i = 0; i < maxGhosts; i += 1) {
+      const pos = ghostSpawns[i % ghostSpawns.length];
+      const penPos = hasGhostContainer ? ghostContainerCells[i % ghostContainerCells.length] : pos;
+      const color = palette[i % palette.length];
+      templates.push({
+        id: `ghost-${i + 1}`,
+        color,
+        originalColor: color,
+        col: penPos.col,
+        row: penPos.row,
+        prevCol: penPos.col,
+        prevRow: penPos.row,
         dir: C.ACTIONS.LEFT,
         frightenedTimer: 0,
+        frightenedWarning: false,
+        state: hasGhostContainer ? 'PEN' : 'NORMAL',
+        speedFactor: 1,
+        moveAccumulator: 0,
+        frightenedSpeedTarget: 1,
+        leavingPen: false,
+        penExitPath: null,
+        penExitStep: 0,
         eatenThisPower: false,
         returningToHome: false,
         waitingToRespawn: false,
@@ -159,10 +198,22 @@
         homeRow: pos.row,
         mode: (C.SCATTER_CHASE_SCHEDULE?.[0]?.mode) || C.GHOST_MODES?.SCATTER || 'SCATTER',
         speed: 1,
-        cornerCol: (C.GHOST_CORNERS?.[palette[idx % palette.length]]?.col) ?? pos.col,
-        cornerRow: (C.GHOST_CORNERS?.[palette[idx % palette.length]]?.row) ?? pos.row
-      }))
-    };
+        cornerCol: (C.GHOST_CORNERS?.[color]?.col) ?? pos.col,
+        cornerRow: (C.GHOST_CORNERS?.[color]?.row) ?? pos.row
+      });
+    }
+
+    if (templates.length) {
+      if (hasGhostContainer) {
+        state.ghostPen = templates;
+        state.pendingGhosts = templates.slice();
+        state.nextGhostSpawnSteps = state.pendingGhosts.length ? 0 : 0;
+      } else {
+        state.ghosts.push(templates[0]);
+        state.pendingGhosts = templates.slice(1);
+        state.nextGhostSpawnSteps = state.pendingGhosts.length ? state.ghostSpawnIntervalSteps : 0;
+      }
+    }
 
     // Guarda snapshot y score de arranque del nivel para reintentos tras perder vida.
     captureLevelSnapshot(state);
@@ -176,6 +227,41 @@
    * @returns {Object}
    */
   function cloneState(state) {
+    const ghostContainerCells = state.ghostContainerCells ? state.ghostContainerCells.map((c) => ({ ...c })) : [];
+    const ghostPen = state.ghostPen ? cloneActors(state.ghostPen) : [];
+    const penMap = new Map(ghostPen.map((g) => [g.id, g]));
+    const pendingGhosts = state.pendingGhosts
+      ? state.pendingGhosts.map((g) => penMap.get(g.id) || { ...g })
+      : [];
+
+    const snapshotGhostPen = state.levelSnapshot?.ghostPen ? cloneActors(state.levelSnapshot.ghostPen) : [];
+    const snapshotPenMap = new Map(snapshotGhostPen.map((g) => [g.id, g]));
+    const levelSnapshot = state.levelSnapshot ? {
+      map: cloneMatrix(state.levelSnapshot.map),
+      pacman: { ...state.levelSnapshot.pacman },
+      ghosts: cloneActors(state.levelSnapshot.ghosts || []),
+      ghostPen: snapshotGhostPen,
+      ghostContainerCells: state.levelSnapshot.ghostContainerCells
+        ? state.levelSnapshot.ghostContainerCells.map((c) => ({ ...c }))
+        : [],
+      pendingGhosts: state.levelSnapshot.pendingGhosts
+        ? state.levelSnapshot.pendingGhosts.map((g) => snapshotPenMap.get(g.id) || { ...g })
+        : [],
+      pelletsRemaining: state.levelSnapshot.pelletsRemaining,
+      initialPellets: state.levelSnapshot.initialPellets,
+      pelletMilestoneAwarded: state.levelSnapshot.pelletMilestoneAwarded,
+      lastAction: state.levelSnapshot.lastAction,
+      powerTimer: state.levelSnapshot.powerTimer ?? 0,
+      respawnTimerSteps: state.levelSnapshot.respawnTimerSteps ?? 0,
+      stepsSinceLastPellet: state.levelSnapshot.stepsSinceLastPellet ?? 0,
+      pacmanSpawn: state.levelSnapshot.pacmanSpawn ? { ...state.levelSnapshot.pacmanSpawn } : null,
+      ghostSpawnPoints: state.levelSnapshot.ghostSpawnPoints
+        ? state.levelSnapshot.ghostSpawnPoints.map((p) => ({ ...p }))
+        : null,
+      nextGhostSpawnSteps: state.levelSnapshot.nextGhostSpawnSteps ?? 0,
+      ghostSpawnIntervalSteps: state.levelSnapshot.ghostSpawnIntervalSteps ?? (C.GHOST_SPAWN_INTERVAL_STEPS || 1)
+    } : null;
+
     return {
       map: cloneMatrix(state.map),
       pelletsRemaining: state.pelletsRemaining,
@@ -189,6 +275,7 @@
       pelletMilestoneAwarded: state.pelletMilestoneAwarded,
       status: state.status,
       powerTimer: state.powerTimer,
+      respawnTimerSteps: state.respawnTimerSteps ?? 0,
       lastAction: state.lastAction,
       aStarRecalcs: state.aStarRecalcs || 0,
       aStarCacheHits: state.aStarCacheHits || 0,
@@ -197,44 +284,46 @@
       ghostModeIndex: state.ghostModeIndex ?? 0,
       ghostMode: state.ghostMode ?? (C.GHOST_MODES?.SCATTER || 'SCATTER'),
       ghostModeTimer: state.ghostModeTimer ?? 0,
-      levelSnapshot: state.levelSnapshot ? {
-        map: cloneMatrix(state.levelSnapshot.map),
-        pacman: { ...state.levelSnapshot.pacman },
-        ghosts: cloneActors(state.levelSnapshot.ghosts),
-        pelletsRemaining: state.levelSnapshot.pelletsRemaining,
-        initialPellets: state.levelSnapshot.initialPellets,
-        pelletMilestoneAwarded: state.levelSnapshot.pelletMilestoneAwarded,
-        lastAction: state.levelSnapshot.lastAction,
-        powerTimer: state.levelSnapshot.powerTimer ?? 0,
-        stepsSinceLastPellet: state.levelSnapshot.stepsSinceLastPellet ?? 0,
-        pacmanSpawn: state.levelSnapshot.pacmanSpawn ? { ...state.levelSnapshot.pacmanSpawn } : null,
-        ghostSpawnPoints: state.levelSnapshot.ghostSpawnPoints
-          ? state.levelSnapshot.ghostSpawnPoints.map((p) => ({ ...p }))
-          : null
-      } : null,
+      frightenedWarningSteps: state.frightenedWarningSteps ?? C.FRIGHTENED_WARNING_STEPS,
+      ghostSpawnIntervalSteps: state.ghostSpawnIntervalSteps ?? (C.GHOST_SPAWN_INTERVAL_STEPS || 1),
+      nextGhostSpawnSteps: state.nextGhostSpawnSteps ?? 0,
+      pendingGhosts,
+      ghostContainerCells,
+      ghostPen,
+      levelSnapshot,
       lifeLostThisStep: false,
       pacman: { ...state.pacman },
       pacmanSpawn: state.pacmanSpawn ? { ...state.pacmanSpawn } : null,
+      respawnTimerSteps: state.respawnTimerSteps ?? 0,
       ghostSpawnPoints: state.ghostSpawnPoints ? state.ghostSpawnPoints.map((p) => ({ ...p })) : null,
       ghosts: state.ghosts.map((g) => ({ ...g }))
     };
   }
 
   function captureLevelSnapshot(state) {
+    const snapPen = state.ghostPen ? cloneActors(state.ghostPen) : [];
+    const penMap = new Map(snapPen.map((g) => [g.id, g]));
+    const pending = state.pendingGhosts ? state.pendingGhosts.map((g) => penMap.get(g.id) || { ...g }) : [];
     state.levelSnapshot = {
       map: cloneMatrix(state.map),
       pacman: { ...state.pacman },
       ghosts: cloneActors(state.ghosts),
+      ghostPen: snapPen,
+      ghostContainerCells: state.ghostContainerCells ? state.ghostContainerCells.map((c) => ({ ...c })) : [],
+      pendingGhosts: pending,
       pelletsRemaining: state.pelletsRemaining,
       initialPellets: state.initialPellets,
       pelletMilestoneAwarded: state.pelletMilestoneAwarded,
       lastAction: state.lastAction,
       powerTimer: 0,
+      respawnTimerSteps: 0,
       stepsSinceLastPellet: 0,
       pacmanSpawn: state.pacmanSpawn ? { ...state.pacmanSpawn } : null,
       ghostSpawnPoints: state.ghostSpawnPoints ? state.ghostSpawnPoints.map((p) => ({ ...p })) : null,
       score: state.score,
-      steps: state.steps
+      steps: state.steps,
+      nextGhostSpawnSteps: state.nextGhostSpawnSteps ?? 0,
+      ghostSpawnIntervalSteps: state.ghostSpawnIntervalSteps ?? (C.GHOST_SPAWN_INTERVAL_STEPS || 1)
     };
     if (state.scoreInicialNivel == null) {
       state.scoreInicialNivel = state.score;
@@ -247,7 +336,10 @@
     const snap = state.levelSnapshot;
     state.map = cloneMatrix(snap.map);
     state.pacman = { ...snap.pacman };
-    state.ghosts = cloneActors(snap.ghosts);
+    state.ghosts = cloneActors(snap.ghosts || []);
+    state.ghostPen = snap.ghostPen ? cloneActors(snap.ghostPen) : [];
+    const penMap = new Map(state.ghostPen.map((g) => [g.id, g]));
+    state.pendingGhosts = snap.pendingGhosts ? snap.pendingGhosts.map((g) => penMap.get(g.id) || { ...g }) : [];
     state.pelletsRemaining = snap.pelletsRemaining;
     state.initialPellets = snap.initialPellets;
     state.pelletMilestoneAwarded = snap.pelletMilestoneAwarded;
@@ -260,12 +352,18 @@
     if (snap.ghostSpawnPoints) {
       state.ghostSpawnPoints = snap.ghostSpawnPoints.map((p) => ({ ...p }));
     }
+    if (snap.ghostContainerCells) {
+      state.ghostContainerCells = snap.ghostContainerCells.map((c) => ({ ...c }));
+    }
+    state.respawnTimerSteps = snap.respawnTimerSteps ?? state.respawnTimerSteps ?? 0;
     if (snap.steps != null) {
       state.steps = snap.steps;
     }
     if (snap.score != null) {
       state.score = snap.score;
     }
+    state.nextGhostSpawnSteps = snap.nextGhostSpawnSteps ?? state.nextGhostSpawnSteps ?? 0;
+    state.ghostSpawnIntervalSteps = snap.ghostSpawnIntervalSteps ?? state.ghostSpawnIntervalSteps ?? (C.GHOST_SPAWN_INTERVAL_STEPS || 1);
   }
 
   window.gameState = {
@@ -274,6 +372,7 @@
     normalizeLevel,
     findPacmanSpawn,
     findGhostSpawns,
+    findGhostContainerCells,
     countPellets,
     captureLevelSnapshot,
     restoreLevelSnapshot
