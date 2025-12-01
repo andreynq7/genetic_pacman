@@ -4,6 +4,7 @@
  * Evalúa el fitness de un cromosoma ejecutando episodios sin render.
  * Construye la política desde el cromosoma, simula episodios con el simulador
  * y agrega recompensas para obtener un valor de fitness reproducible.
+ * El fitness se clampa a un m�nimo de 0 para mantenerlo no negativo.
  */
 (function() {
   const POLICY = window.policyEncoding;
@@ -108,8 +109,10 @@
     if (stallPenalty && finalState.stallCount) {
       totalReward -= stallPenalty * finalState.stallCount;
     }
+    const clampedReward = Math.max(0, totalReward);
     return {
-      reward: totalReward,
+      reward: clampedReward,
+      rawReward: totalReward,
       steps: result.steps,
       finalState,
       status: finalState.status,
@@ -131,7 +134,7 @@
 
     const evalOnce = (seed, levelOverride) => {
       const ep = evaluateEpisode(chromosome, cfg, seed, levelOverride);
-      rewards.push(ep.reward);
+      rewards.push(Math.max(0, ep.reward));
       episodes.push(ep);
     };
 
