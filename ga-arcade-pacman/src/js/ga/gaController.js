@@ -1,4 +1,4 @@
-﻿/**
+/**
  * gaController.js
  * ----------------
  * Orquesta la ejecución del Algoritmo Genético y expone controles de inicio,
@@ -212,7 +212,8 @@
       bestEver: runState.gaState.bestEver,
       history: runState.gaState.history,
       totalTimeMs: runState.timing.totalMs,
-      avgTimeMs: runState.timing.totalMs / runState.gaState.generation
+      avgTimeMs: runState.timing.totalMs / runState.gaState.generation,
+      metrics: runState.gaState.lastMetrics
     };
 
     if (runState.callbacks.onGeneration) {
@@ -311,20 +312,25 @@
     return runState.timing;
   }
 
-   window.gaController = {
-     initializeFromUI,
-     start,
-     pause,
-     resume,
-     reset,
-     extendGenerations,
-     getBestChromosome,
+  function getMetricsHistory() {
+    return runState.gaState?.metricsHistory || [];
+  }
+
+  window.gaController = {
+    initializeFromUI,
+    start,
+    pause,
+    resume,
+    reset,
+    extendGenerations,
+    getBestChromosome,
     getBestFitness,
     getBestInfo,
     getGAConfig,
     getFitnessConfig,
-     getStatus,
+    getStatus,
     getHistory,
-    getTiming
-   };
+    getTiming,
+    getMetricsHistory
+  };
 })();

@@ -63,7 +63,13 @@
     mutationGeneRate: 0.6,      // probabilidad por gen de mutar
     randomSeed: baseDefaults.randomSeed || 1234, // baseDefaults.randomSeed ||
     mutationSchedule: { start: 1.2, end: 0.7 }, // factor multiplicativo dinamico
-    fitnessConfig: FITNESS.defaultFitnessConfig
+    fitnessConfig: FITNESS.defaultFitnessConfig,
+    crossoverType: 'blend',
+    crossoverBlendRate: 0.6,
+    selectionScaling: 'log',
+    fitnessSharing: true,
+    sharingSigma: 0.75,
+    sharingAlpha: 1
   };
 
   /**
@@ -83,7 +89,10 @@
       mutationGeneRate: cfg.mutationGeneRate ?? defaultGAConfig.mutationGeneRate,
       mutationSchedule: cfg.mutationSchedule ?? defaultGAConfig.mutationSchedule,
       randomSeed: cfg.randomSeed ?? defaultGAConfig.randomSeed,
-      fitnessConfig: FITNESS.createFitnessConfig(cfg.fitnessConfig || defaultGAConfig.fitnessConfig)
+      fitnessConfig: FITNESS.createFitnessConfig(cfg.fitnessConfig || defaultGAConfig.fitnessConfig),
+      crossoverType: cfg.crossoverType ?? defaultGAConfig.crossoverType,
+      crossoverBlendRate: cfg.crossoverBlendRate ?? defaultGAConfig.crossoverBlendRate,
+      selectionScaling: cfg.selectionScaling ?? defaultGAConfig.selectionScaling
     };
   }
 
@@ -230,7 +239,8 @@
     const cfg = gaState.config;
     const rng = gaState.rng;
     const current = [...gaState.population].sort((a, b) => b.fitness - a.fitness);
-    const priorityWeights = computePriorityWeights(current, PERFORMANCE_TARGETS);
+    const sharingCfg = { enabled: cfg.fitnessSharing, sigma: cfg.sharingSigma, alpha: cfg.sharingAlpha };
+    const priorityWeights = computePriorityWeights(current, PERFORMANCE_TARGETS, cfg.selectionScaling, sharingCfg);
 
     const next = [];
     // Elitismo: copia los mejores sin cambios
@@ -259,10 +269,17 @@
     while (next.length < cfg.populationSize && crossIdx < crossCount) {
       const p1 = tournamentSelect(current, cfg.tournamentSize, rng, priorityWeights);
       const p2 = tournamentSelect(current, cfg.tournamentSize, rng, priorityWeights);
-      const [c1, c2] = crossoverSinglePoint(p1.chromosome, p2.chromosome, rng);
-      next.push({ id: `g${gaState.generation + 1}-cross-${crossIdx}`, chromosome: mutateChromosome(c1, cfg, rng, mutationTuning), fitness: null, evalStats: null });
+      const useBlend = cfg.crossoverType === 'blend' && rng.random() < cfg.crossoverBlendRate;
+      const children = useBlend
+        ? crossoverBlend(p1.chromosome, p2.chromosome, Math.max(0.25, Math.min(0.75, (p1.fitness) / Math.max(1, p1.fitness + p2.fitness))))
+        : crossoverSinglePoint(p1.chromosome, p2.chromosome, rng);
+      const perc1 = 1 - (current.indexOf(p1) / Math.max(1, current.length - 1));
+      const perc2 = 1 - (current.indexOf(p2) / Math.max(1, current.length - 1));
+      const tuned1 = scaleMutationByPercentile(mutationTuning, perc1);
+      const tuned2 = scaleMutationByPercentile(mutationTuning, perc2);
+      next.push({ id: `g${gaState.generation + 1}-cross-${crossIdx}`, chromosome: mutateChromosome(children[0], cfg, rng, tuned1), fitness: null, evalStats: null });
       if (next.length < cfg.populationSize) {
-        next.push({ id: `g${gaState.generation + 1}-cross-${crossIdx}-b`, chromosome: mutateChromosome(c2, cfg, rng, mutationTuning), fitness: null, evalStats: null });
+        next.push({ id: `g${gaState.generation + 1}-cross-${crossIdx}-b`, chromosome: mutateChromosome(children[1], cfg, rng, tuned2), fitness: null, evalStats: null });
       }
       crossIdx += 1;
     }
@@ -271,7 +288,9 @@
     let mutIdx = 0;
     while (next.length < cfg.populationSize && mutIdx < mutCount) {
       const parent = tournamentSelect(current, cfg.tournamentSize, rng, priorityWeights);
-      const child = mutateChromosome(POLICY.cloneChromosome(parent.chromosome), cfg, rng, mutationTuning);
+      const perc = 1 - (current.indexOf(parent) / Math.max(1, current.length - 1));
+      const tuned = scaleMutationByPercentile(mutationTuning, perc);
+      const child = mutateChromosome(POLICY.cloneChromosome(parent.chromosome), cfg, rng, tuned);
       next.push({ id: `g${gaState.generation + 1}-mut-${mutIdx}`, chromosome: child, fitness: null, evalStats: null });
       mutIdx += 1;
     }
@@ -322,6 +341,19 @@
     return [child1, child2];
   }
 
+  function crossoverBlend(a, b, w) {
+    const len = POLICY.NUM_GENES;
+    const child1 = new Array(len);
+    const child2 = new Array(len);
+    for (let i = 0; i < len; i += 1) {
+      const g1 = clamp(a[i] * w + b[i] * (1 - w), POLICY.GENE_RANGE.min, POLICY.GENE_RANGE.max);
+      const g2 = clamp(b[i] * w + a[i] * (1 - w), POLICY.GENE_RANGE.min, POLICY.GENE_RANGE.max);
+      child1[i] = g1;
+      child2[i] = g2;
+    }
+    return [POLICY.normalizeChromosome(child1), POLICY.normalizeChromosome(child2)];
+  }
+
   /**
    * Mutaci�n por gen con probabilidad mutationGeneRate; a�ade ruido uniformemente distribuido.
    * @param {number[]} chromosome
@@ -353,19 +385,23 @@
     return population[population.length - 1];
   }
 
-  function computePriorityWeights(population, targets) {
+  function computePriorityWeights(population, targets, scalingMode, sharingCfg = { enabled: false, sigma: 1, alpha: 1 }) {
     if (!population.length) return null;
     const bestFitness = population[0].fitness ?? 1;
     const gapRange = targets.potentialGap;
     const percRange = targets.percentileRange;
     const len = population.length;
+    const sharing = sharingCfg?.enabled ? computeSharingFactors(population, sharingCfg.sigma, sharingCfg.alpha) : null;
     return population.map((ind, idx) => {
       const percentile = len > 1 ? 1 - (idx / (len - 1)) : 1;
       const gap = Math.max(0, (bestFitness - ind.fitness) / Math.max(1, Math.abs(bestFitness)));
       const gapBonus = (gap >= gapRange.min && gap <= gapRange.max) ? 1.25 : 1;
       const percentileBonus = (percentile >= percRange.min && percentile <= percRange.max) ? 1.15 : 1;
-      const base = Math.max(1, ind.fitness);
-      return base * gapBonus * percentileBonus;
+      const base = (scalingMode === 'log')
+        ? (Math.log(1 + Math.max(0, ind.fitness)) + 1)
+        : Math.max(1, ind.fitness);
+      const crowd = sharing ? Math.max(0.5, 1 + sharing[idx]) : 1;
+      return (base * gapBonus * percentileBonus) / crowd;
     });
   }
 
@@ -376,7 +412,7 @@
       ? episodes.reduce((acc, ep) => acc + (ep?.steps || 0), 0) / episodes.length
       : Math.max(1, evalStats?.steps || POLICY.NUM_GENES);
     const meanReward = evalStats?.fitness ?? best?.fitness ?? avg ?? 0;
-    const stepsPerMinute = 600; // asumiendo 10 pasos lógicos/seg (100 ms)
+    const stepsPerMinute = 600;
     const pointsPerMinute = (meanReward / Math.max(1, meanSteps)) * stepsPerMinute;
     const efficiency = meanReward / Math.max(1, meanSteps);
     const level = episodes.reduce((acc, ep) => Math.max(acc, ep?.finalState?.level || 0), 0) || PERFORMANCE_TARGETS.levelRange.min;
@@ -392,6 +428,8 @@
       growthRate = (avg - prev) / denom;
     }
     const { p75, p90 } = computePercentiles(gaState.population);
+    const div = computePopulationDiversity(gaState.population);
+    const avgRatio = Math.max(0.0001, avg) / Math.max(0.0001, best?.fitness ?? avg ?? 1);
     return {
       level,
       meanReward,
@@ -402,7 +440,9 @@
       percentile75: p75,
       percentile90: p90,
       aStarRecalcs: totalAStarRecalcs,
-      aStarCacheHits: totalAStarCacheHits
+      aStarCacheHits: totalAStarCacheHits,
+      diversity: div.geneStdMean,
+      avgToBestRatio: avgRatio
     };
   }
 
@@ -411,6 +451,57 @@
     const values = population.map((p) => p.fitness).sort((a, b) => a - b);
     const at = (q) => values[Math.min(values.length - 1, Math.floor((values.length - 1) * q))];
     return { p75: at(0.75), p90: at(0.9) };
+  }
+
+  function computeSharingFactors(population, sigma, alpha) {
+    const n = population.length;
+    const len = POLICY.NUM_GENES;
+    const s = new Array(n).fill(0);
+    const sg = Math.max(0.0001, sigma);
+    const a = Math.max(0.5, alpha);
+    for (let i = 0; i < n; i += 1) {
+      const gi = population[i].chromosome;
+      let acc = 0;
+      for (let j = 0; j < n; j += 1) {
+        if (i === j) continue;
+        const gj = population[j].chromosome;
+        let dist2 = 0;
+        for (let k = 0; k < len; k += 1) {
+          const d = gi[k] - gj[k];
+          dist2 += d * d;
+        }
+        const d = Math.sqrt(dist2);
+        if (d < sg) {
+          const sh = 1 - Math.pow(d / sg, a);
+          acc += Math.max(0, sh);
+        }
+      }
+      s[i] = acc;
+    }
+    return s;
+  }
+
+  function computePopulationDiversity(population) {
+    if (!population.length) return { geneStdMean: 0 };
+    const len = POLICY.NUM_GENES;
+    const n = population.length;
+    const sums = new Array(len).fill(0);
+    const sums2 = new Array(len).fill(0);
+    for (let p = 0; p < n; p += 1) {
+      const g = population[p].chromosome;
+      for (let i = 0; i < len; i += 1) {
+        const v = g[i];
+        sums[i] += v;
+        sums2[i] += v * v;
+      }
+    }
+    let stdSum = 0;
+    for (let i = 0; i < len; i += 1) {
+      const mu = sums[i] / n;
+      const varg = Math.max(0, (sums2[i] / n) - mu * mu);
+      stdSum += Math.sqrt(varg);
+    }
+    return { geneStdMean: stdSum / len };
   }
 
   function maybeAutoTuneParameters(gaState) {
@@ -441,6 +532,26 @@
       cfg.crossoverRate = clamp(cfg.crossoverRate - 2, 15, 65);
       cfg.selectionRate = clamp(cfg.selectionRate + 5, 30, 90);
       cfg.mutationStrength = clamp(cfg.mutationStrength * 0.92, 0.5, 3);
+      tweaked = true;
+    }
+
+    const lastAvg = gaState.history?.avgFitness?.length ? gaState.history.avgFitness[gaState.history.avgFitness.length - 1] : 0;
+    const bestFit = gaState.bestEver?.fitness ?? 1;
+    const avgRatio = Math.max(0.0001, lastAvg) / Math.max(0.0001, bestFit);
+    const lowAvgGap = avgRatio < 0.25;
+    const lowDiversity = (perf?.diversity ?? 0) < 0.35;
+
+    if (lowAvgGap && !lowDiversity) {
+      cfg.tournamentSize = clamp(cfg.tournamentSize + 1, 2, 6);
+      cfg.selectionRate = clamp(cfg.selectionRate + 5, 30, 90);
+      cfg.mutationStrength = clamp(cfg.mutationStrength * 0.95, 0.4, 3);
+      tweaked = true;
+    } else if (lowDiversity) {
+      cfg.tournamentSize = clamp(cfg.tournamentSize - 1, 2, 6);
+      cfg.mutationRate = clamp(cfg.mutationRate + 5, 10, 60);
+      cfg.crossoverRate = clamp(cfg.crossoverRate + 3, 25, 75);
+      cfg.fitnessSharing = true;
+      cfg.sharingSigma = clamp(cfg.sharingSigma * 1.15, 0.5, 2.5);
       tweaked = true;
     }
 
@@ -503,12 +614,26 @@
     };
   }
 
+  function scaleMutationByPercentile(baseTuning, percentile) {
+    const p = Math.max(0, Math.min(1, percentile));
+    const rateScale = 0.8 + (1 - p) * 0.6;
+    const strengthScale = 0.85 + (1 - p) * 0.5;
+    return {
+      geneRate: baseTuning.geneRate * rateScale,
+      strength: baseTuning.strength * strengthScale
+    };
+  }
+
   function getBestIndividual(gaState) {
     return gaState.bestEver;
   }
 
   function getHistory(gaState) {
     return gaState.history;
+  }
+
+  function getMetricsHistory(gaState) {
+    return gaState.metricsHistory || [];
   }
 
   window.geneticAlgorithm = {
@@ -521,6 +646,7 @@
     summarizeEvaluatedPopulation,
     seedFitnessConfig,
     getBestIndividual,
-    getHistory
+    getHistory,
+    getMetricsHistory
   };
 })();

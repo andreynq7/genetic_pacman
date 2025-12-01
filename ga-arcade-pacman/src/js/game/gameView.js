@@ -5,6 +5,7 @@
   const TILE_SIZE = 16;
   const MAP_COLS = 28;
   const MAP_ROWS = 31;
+  const STEP_MS = 100;
 
   // Legend:
   // W = Wall
@@ -79,6 +80,9 @@
     canvas.height = MAP_ROWS * TILE_SIZE;
 
     const ctx = canvas.getContext('2d');
+    if (ctx && typeof ctx.imageSmoothingEnabled === 'boolean') {
+      ctx.imageSmoothingEnabled = false;
+    }
     cachedCtx = ctx;
     if (window.uiLayout) {
       const refs = uiLayout.getRefs();
@@ -187,7 +191,12 @@
     if (state.ghosts && state.ghosts.length) {
       state.ghosts.forEach((ghost, idx) => {
         const { x, y } = gridToPixelLerped(ghost.prevCol ?? ghost.col, ghost.prevRow ?? ghost.row, ghost.col, ghost.row, alpha);
-        const sprite = getGhostSprite(ghost, idx, state?.steps || 0);
+        const stepCount = state?.steps || 0;
+        if (ghost.eyeState) {
+          drawGhostEyes(ctx, ghost, x, y, stepCount);
+          return;
+        }
+        const sprite = getGhostSprite(ghost, idx, stepCount);
         if (sprite?.ready) {
           ctx.drawImage(sprite.img, x, y, TILE_SIZE, TILE_SIZE);
         } else if (defaultGhostSprite?.ready) {
@@ -293,10 +302,12 @@
     isWalkable,
     isGhostGate,
     getMapDimensions,
+    preloadSprites,
     constants: {
       TILE_SIZE,
       MAP_COLS,
       MAP_ROWS,
+      STEP_MS,
       LEVEL_MAP,
       TILE_TYPES
     }
@@ -347,11 +358,52 @@
         ];
       });
     });
+    set.eyes = {
+      LEFT: [loadImage('./assets/sprites/eyesGhost/eyesGhost_left.png')],
+      RIGHT: [loadImage('./assets/sprites/eyesGhost/eyesGhost_right.png')],
+      UP: [loadImage('./assets/sprites/eyesGhost/eyesGhost_up.png')],
+      DOWN: [loadImage('./assets/sprites/eyesGhost/eyesGhost_down.png')]
+    };
     set.scared = [
       loadImage('./assets/sprites/scaredGhost/scaredGhost.png'),
       loadImage('./assets/sprites/scaredGhost/scaredGhost2.png')
     ];
     return set;
+  }
+
+  function collectSpriteObjects() {
+    const list = [];
+    Object.values(pacmanSprites).forEach((s) => { if (s) list.push(s); });
+    Object.values(ghostSprites).forEach((entry) => {
+      if (Array.isArray(entry)) {
+        entry.forEach((s) => { if (s) list.push(s); });
+      } else if (entry && typeof entry === 'object') {
+        Object.values(entry).forEach((arr) => {
+          if (Array.isArray(arr)) arr.forEach((s) => { if (s) list.push(s); });
+        });
+      }
+    });
+    return list;
+  }
+
+  function preloadSprites(timeoutMs = 5000) {
+    const sprites = collectSpriteObjects();
+    const readyCheck = () => sprites.every((s) => s?.ready || s?.img?.complete);
+    return new Promise((resolve) => {
+      const start = Date.now();
+      const tick = () => {
+        if (readyCheck()) {
+          resolve(true);
+          return;
+        }
+        if ((Date.now() - start) >= timeoutMs) {
+          resolve(false);
+          return;
+        }
+        setTimeout(tick, 50);
+      };
+      tick();
+    });
   }
 
   function getDefaultGhostSprite(sprites) {
@@ -365,6 +417,10 @@
   function getGhostSprite(ghost, idx, stepCount) {
     const animPhase = ((stepCount || 0) % 12) < 6 ? 0 : 1;
     const frightened = (ghost.frightenedTimer || 0) > 0;
+    if (ghost?.eyeState) {
+      const eyeSprite = getEyesSprite(ghost);
+      if (eyeSprite?.ready) return eyeSprite;
+    }
     if (frightened) {
       const s = ghostSprites.scared[animPhase] || ghostSprites.scared[0];
       if (s?.ready) return s;
@@ -410,5 +466,62 @@
       ghost.color = ghost.originalColor;
     }
     return ghost.color;
+  }
+
+  function getEyesSprite(ghost) {
+    const set = ghostSprites.eyes || {};
+    const dirKey = normalizeDirKey(ghost?.dir);
+    const list = set[dirKey] || set.LEFT || set.RIGHT || set.UP || set.DOWN;
+    if (!list) return null;
+    const sprite = Array.isArray(list) ? (list[0] || list[1]) : list;
+    return sprite || null;
+  }
+
+  function normalizeDirKey(dir) {
+    if (dir === 'UP' || dir === 'DOWN' || dir === 'LEFT' || dir === 'RIGHT') return dir;
+    return 'LEFT';
+  }
+
+  function drawGhostEyes(ctx, ghost, x, y, stepCount) {
+    const blinkDim = isEyesBlinkDimmed(ghost, stepCount);
+    const sprite = getEyesSprite(ghost);
+    ctx.save();
+    if (blinkDim) {
+      ctx.globalAlpha = 0.35;
+    }
+    if (sprite?.ready) {
+      ctx.drawImage(sprite.img, x, y, TILE_SIZE, TILE_SIZE);
+    } else {
+      drawEyesFallback(ctx, x, y);
+    }
+    ctx.restore();
+  }
+
+  function drawEyesFallback(ctx, x, y) {
+    const centerX = x + TILE_SIZE / 2;
+    const centerY = y + TILE_SIZE / 2;
+    const eyeOffset = TILE_SIZE * 0.18;
+    const eyeRadius = TILE_SIZE * 0.12;
+    const pupilRadius = TILE_SIZE * 0.08;
+
+    ctx.fillStyle = '#f0f0f0';
+    ctx.beginPath();
+    ctx.arc(centerX - eyeOffset, centerY - eyeOffset, eyeRadius, 0, Math.PI * 2);
+    ctx.arc(centerX + eyeOffset, centerY - eyeOffset, eyeRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#3f51b5';
+    ctx.beginPath();
+    ctx.arc(centerX - eyeOffset, centerY - eyeOffset, pupilRadius, 0, Math.PI * 2);
+    ctx.arc(centerX + eyeOffset, centerY - eyeOffset, pupilRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function isEyesBlinkDimmed(ghost, stepCount) {
+    const c = window.gameConstants || {};
+    const blinkSteps = c.GHOST_BLINK_STEPS
+      || Math.max(1, Math.round(((c.TIMING?.ghostBlinkMs) || 250) / ((c.TIMING?.stepDurationMs) || STEP_MS)));
+    const ticks = Math.max(0, (stepCount || 0) - (ghost?.eyeBlinkStartStep || 0));
+    return ((Math.floor(ticks / blinkSteps)) % 2) === 1;
   }
 })();

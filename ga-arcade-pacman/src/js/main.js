@@ -39,8 +39,10 @@
     });
     uiMetrics.updateStatusBadge('Idle', 'idle');
 
-    setupGame();
-    uiMetrics.renderPlaceholderGraph(refs);
+    gameView.preloadSprites().finally(() => {
+      setupGame();
+      uiMetrics.renderPlaceholderGraph(refs);
+    });
     console.log('GA-Arcade UI lista con integración de GA.');
   }
 
@@ -258,6 +260,7 @@
     };
     const logsExport = {
       history,
+      metricsHistory: gaController.getMetricsHistory(),
       generationCount: status.generation,
       timing: gaController.getTiming(),
       timestamp: new Date().toISOString()

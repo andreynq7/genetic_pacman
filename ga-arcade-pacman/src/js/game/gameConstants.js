@@ -55,6 +55,7 @@
   const TILE_SIZE = viewConst.TILE_SIZE || 16;
   const MAP_COLS = viewConst.MAP_COLS || (LEVEL_MAP[0]?.length || 28);
   const MAP_ROWS = viewConst.MAP_ROWS || LEVEL_MAP.length || 31;
+  const STEP_DURATION_MS = viewConst.STEP_MS || 100;
 
   const ACTIONS = {
     UP: 'UP',
@@ -149,6 +150,15 @@
     ghostChaseMax: 0.85
   };
 
+  const TIMING = {
+    stepDurationMs: STEP_DURATION_MS,
+    ghostRespawnMs: 3000,
+    ghostBlinkMs: 250
+  };
+
+  const GHOST_RESPAWN_STEPS = Math.max(1, Math.round(TIMING.ghostRespawnMs / TIMING.stepDurationMs));
+  const GHOST_BLINK_STEPS = Math.max(1, Math.round(TIMING.ghostBlinkMs / TIMING.stepDurationMs));
+
   window.gameConstants = {
     TILE_SIZE,
     MAP_COLS,
@@ -164,6 +174,9 @@
     DIFFICULTY,
     GHOST_MODES,
     SCATTER_CHASE_SCHEDULE,
-    GHOST_CORNERS
+    GHOST_CORNERS,
+    TIMING,
+    GHOST_RESPAWN_STEPS,
+    GHOST_BLINK_STEPS
   };
 })();
