@@ -1,4 +1,4 @@
-﻿// Button wiring for Start/Pause/Reset/Demo con handlers inyectables.
+// Button wiring for Start/Pause/Reset/Demo con handlers inyectables.
 (function() {
   /**
    * Asocia handlers a los botones principales. Si no se provee handler,
@@ -8,7 +8,7 @@
    */
   function bindControls(refs, handlers = {}) {
     if (!refs || !refs.controls) return;
-    const { start, pause, extend, reset, demo, exportBest, exportRun } = refs.controls;
+    const { start, pause, extend, reset, demo, exportBest, exportRun, exportFitness } = refs.controls;
 
     start?.addEventListener('click', () => {
       handlers.onStart?.();
@@ -36,6 +36,10 @@
 
     exportRun?.addEventListener('click', () => {
       handlers.onExportRun?.();
+    });
+
+    exportFitness?.addEventListener('click', () => {
+      handlers.onExportFitness?.();
     });
   }
 

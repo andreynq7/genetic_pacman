@@ -1,0 +1,20 @@
+// Parámetros del GA
+{
+  "populationSize": 40,
+  "generations": 50,
+  "selectionRate": 40,
+  "crossoverRate": 45,
+  "mutationRate": 15,
+  "tournamentSize": 3,
+  "randomSeed": 42,
+  "elitismCount": 3,
+  "mutationStrength": 0.8,
+  "mutationGeneRate": 0.6,
+  "mutationSchedule": { "start": 1.2, "end": 0.7 },
+  "crossoverType": "blend",
+  "crossoverBlendRate": 0.6,
+  "selectionScaling": "log",
+  "fitnessSharing": true,
+  "sharingSigma": 0.75,
+  "sharingAlpha": 1
+}

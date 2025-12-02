@@ -114,9 +114,13 @@
       bestEver: null,
       lastMetrics: null,
       metricsHistory: [],
+      populationHistory: [],
+      lastPopulationSnapshot: null,
+      lastEvaluatedPopulationFitnesses: [],
       history: {
         bestFitness: [],
-        avgFitness: []
+        avgFitness: [],
+        bestIndividuals: []
       }
     };
   }
@@ -197,6 +201,7 @@
       : evaluatePopulation(gaState);
     const t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     maybeAutoTuneParameters(gaState);
+    capturePopulationSnapshot(gaState, best, avg);
     pushWithLimit(gaState.history.bestFitness, best.fitness);
     pushWithLimit(gaState.history.avgFitness, avg);
     const elapsed = t1 - t0;
@@ -214,6 +219,17 @@
     const perf = computePerformanceSnapshot(gaState, best, avg);
     gaState.lastMetrics = perf;
     pushWithLimit(gaState.metricsHistory, perf);
+    gaState.lastEvaluatedPopulationFitnesses = Array.isArray(gaState.population)
+      ? gaState.population.map((ind) => ind?.fitness ?? null)
+      : [];
+    const snapshotBest = {
+      generation: gaState.generation,
+      fitness: best?.fitness ?? null,
+      chromosome: best?.chromosome ? POLICY.cloneChromosome(best.chromosome) : null
+    };
+    if (gaState.history && Array.isArray(gaState.history.bestIndividuals)) {
+      pushWithLimit(gaState.history.bestIndividuals, snapshotBest, 500);
+    }
   }
 
   /**
@@ -446,6 +462,56 @@
     };
   }
 
+  function capturePopulationSnapshot(gaState, best, avg) {
+    if (!gaState.populationHistory) gaState.populationHistory = [];
+    const prevAvg = (gaState.history?.avgFitness?.length || 0) > 0
+      ? gaState.history.avgFitness[gaState.history.avgFitness.length - 1]
+      : null;
+    const dist = summarizePopulationDistribution(gaState.population, prevAvg);
+    const last = gaState.populationHistory[gaState.populationHistory.length - 1];
+    const cumulativeCount = (last?.cumulativeCount || 0) + (gaState.population?.length || 0);
+    const snapshot = {
+      generation: gaState.generation,
+      populationSize: gaState.population?.length || 0,
+      improving: dist.improving,
+      stable: dist.stable,
+      regressing: dist.regressing,
+      bestFitness: best?.fitness ?? null,
+      avgFitness: avg ?? null,
+      percentile75: dist.percentile75,
+      percentile90: dist.percentile90,
+      diversity: dist.diversity,
+      cumulativeCount
+    };
+    pushWithLimit(gaState.populationHistory, snapshot, 800);
+    gaState.lastPopulationSnapshot = snapshot;
+    return snapshot;
+  }
+
+  function summarizePopulationDistribution(population = [], referenceAvg) {
+    // Clasifica la población respecto al promedio previo: ±2% = estable; >2% mejora; < -2% retrocede.
+    if (!Array.isArray(population) || !population.length) {
+      return { improving: 0, stable: 0, regressing: 0, percentile75: 0, percentile90: 0, diversity: 0 };
+    }
+    const fallbackAvg = referenceAvg != null
+      ? referenceAvg
+      : population.reduce((acc, ind) => acc + (ind.fitness ?? 0), 0) / Math.max(1, population.length);
+    const hi = fallbackAvg * 1.02;
+    const lo = fallbackAvg * 0.98;
+    let improving = 0;
+    let regressing = 0;
+    let stable = 0;
+    population.forEach((ind) => {
+      const f = ind.fitness ?? fallbackAvg;
+      if (f > hi) improving += 1;
+      else if (f < lo) regressing += 1;
+      else stable += 1;
+    });
+    const { p75, p90 } = computePercentiles(population);
+    const div = computePopulationDiversity(population);
+    return { improving, stable, regressing, percentile75: p75, percentile90: p90, diversity: div.geneStdMean };
+  }
+
   function computePercentiles(population) {
     if (!population.length) return { p75: 0, p90: 0 };
     const values = population.map((p) => p.fitness).sort((a, b) => a - b);
@@ -628,12 +694,26 @@
     return gaState.bestEver;
   }
 
+  function getBestOfPopulation(population) {
+    if (!Array.isArray(population) || !population.length) return null;
+    let best = population[0];
+    for (let i = 1; i < population.length; i += 1) {
+      const ind = population[i];
+      if ((ind?.fitness ?? -Infinity) > (best?.fitness ?? -Infinity)) best = ind;
+    }
+    return best;
+  }
+
   function getHistory(gaState) {
     return gaState.history;
   }
 
   function getMetricsHistory(gaState) {
     return gaState.metricsHistory || [];
+  }
+
+  function getPopulationHistory(gaState) {
+    return gaState.populationHistory || [];
   }
 
   window.geneticAlgorithm = {
@@ -646,7 +726,9 @@
     summarizeEvaluatedPopulation,
     seedFitnessConfig,
     getBestIndividual,
+    getBestOfPopulation,
     getHistory,
-    getMetricsHistory
+    getMetricsHistory,
+    getPopulationHistory
   };
 })();

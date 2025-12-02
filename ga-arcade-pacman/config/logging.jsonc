@@ -1,0 +1,13 @@
+// Configuración de logging
+{
+  "level": "info",
+  "format": "jsonl",
+  "rotation": {
+    "daily": true,
+    "maxSizeMB": 10,
+    "maxFiles": 14
+  },
+  "retentionDays": 14,
+  "serverUrl": "",
+  "maxEntries": 10000
+}

@@ -39,4 +39,18 @@ describe('geneticAlgorithm', () => {
     ga.runGeneration(state);
     expect(state.bestEver.fitness).toBeGreaterThanOrEqual(firstBest.fitness);
   });
+
+  it('registra mejor individuo por generacin en history.bestIndividuals', () => {
+    const ga = sandbox.geneticAlgorithm;
+    const cfg = ga.createGAConfig(tinyGAConfig);
+    const state = ga.createGAState(cfg);
+    ga.runGeneration(state);
+    ga.runGeneration(state);
+    const hist = ga.getHistory(state);
+    expect(Array.isArray(hist.bestIndividuals)).toBe(true);
+    expect(hist.bestIndividuals.length).toBeGreaterThanOrEqual(2);
+    const entry = hist.bestIndividuals[0];
+    expect(entry.generation).toBeDefined();
+    expect(entry.fitness).toBeDefined();
+  });
 });

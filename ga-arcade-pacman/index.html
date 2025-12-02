@@ -1,4 +1,4 @@
-﻿﻿<!DOCTYPE html>
+﻿﻿﻿﻿﻿﻿<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -58,7 +58,7 @@
           <input type="number" id="episodes-input" name="episodes" min="1" step="1" placeholder="Ej. 3">
         </div>
 
-        
+
         <div id="percentage-error" class="error-message hidden">La suma de porcentajes debe ser 100%.</div>
       </form>
     </section>
@@ -98,6 +98,7 @@
             <button type="button" id="demo-btn" class="btn ghost">Demo best</button>
             <button type="button" id="export-best-btn" class="btn">Export Best</button>
             <button type="button" id="export-run-btn" class="btn">Export Run Data</button>
+            <button type="button" id="export-fitness-btn" class="btn">Export Fitness History</button>
           </div>
         </div>
 
@@ -132,6 +133,36 @@
               <span class="graph-note">Evolución del entrenamiento</span>
             </div>
             <canvas id="metrics-canvas" width="360" height="180"></canvas>
+
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <h2>Distribución de población</h2>
+          <p class="panel-hint">Evolución por generación con foco en mejoras.</p>
+          <div class="pop-chart-controls">
+            <div class="control-group toggles">
+              <button type="button" id="pop-improvement-btn" class="btn ghost small" aria-pressed="false">Vista de mejoras</button>
+              <button type="button" id="pop-cumulative-btn" class="btn small" aria-pressed="false">Datos acumulados</button>
+            </div>
+            <div class="control-group">
+              <label for="population-range-start">Rango de generaciones</label>
+              <div class="range-inputs">
+                <input type="number" id="population-range-start" min="0" value="0" aria-label="Generación inicial">
+                <input type="number" id="population-range-end" min="0" value="0" aria-label="Generación final">
+              </div>
+            </div>
+          </div>
+          <div class="pop-chart-legend" aria-hidden="true">
+            <span class="legend-item"><span class="swatch swatch-improving"></span>Mejoran</span>
+            <span class="legend-item"><span class="swatch swatch-stable"></span>Estables</span>
+            <span class="legend-item"><span class="swatch swatch-regress"></span>Retroceden</span>
+            <span class="legend-item line"><span class="swatch-line"></span>Tendencia</span>
+          </div>
+          <p class="panel-hint">Metodología: se compara cada individuo contra el promedio previo (±2% es estable, >2% mejora, <-2% retrocede). El modo acumulado suma las categorías a lo largo del tiempo.</p>
+          <div class="pop-chart-wrapper">
+            <svg id="population-chart" role="img" aria-label="Distribución de población por generación" focusable="false"></svg>
+            <div id="population-tooltip" class="chart-tooltip hidden" role="status" aria-live="polite"></div>
           </div>
         </div>
       </div>
@@ -144,11 +175,15 @@
   </footer>
 
   <script src="./src/config/defaultConfig.js"></script>
+  <script src="./src/js/utils/logger.js"></script>
+  <script src="./src/js/utils/bestStore.js"></script>
+  <script src="./src/config/configLoader.js"></script>
 <script src="./src/js/utils/domHelpers.js"></script>
 <script src="./src/js/ui/uiLayout.js"></script>
 <script src="./src/js/ui/uiForms.js"></script>
 <script src="./src/js/ui/uiControls.js"></script>
 <script src="./src/js/ui/uiMetrics.js"></script>
+<script src="./src/js/ui/populationChart.js"></script>
 
 <script src="./src/js/game/gameView.js"></script>
 <script src="./src/js/game/gameConstants.js"></script>

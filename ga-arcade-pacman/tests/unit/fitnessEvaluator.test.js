@@ -28,7 +28,7 @@ describe('fitnessEvaluator', () => {
     expect(first.fitness).toBeCloseTo(second.fitness, 6);
   });
 
-  it('respeta maxStepsPerEpisode en evaluaci�n', () => {
+  it('respeta maxStepsPerEpisode en evaluacin', () => {
     const cfg = sandbox.fitnessEvaluator.createFitnessConfig({
       episodesPerIndividual: 1,
       maxStepsPerEpisode: 10,
@@ -36,5 +36,14 @@ describe('fitnessEvaluator', () => {
     });
     const result = sandbox.fitnessEvaluator.evaluateChromosome(smallChromosome, cfg);
     expect(result.episodes[0].steps).toBeLessThanOrEqual(10);
+  });
+
+  it('retorno descontado con gamma altera el fitness respecto a gamma=1', () => {
+    const cfgBase = { episodesPerIndividual: 1, maxStepsPerEpisode: 80, baseSeed: 777 };
+    const cfgGamma1 = sandbox.fitnessEvaluator.createFitnessConfig({ ...cfgBase, gamma: 1 });
+    const cfgGamma09 = sandbox.fitnessEvaluator.createFitnessConfig({ ...cfgBase, gamma: 0.9 });
+    const r1 = sandbox.fitnessEvaluator.evaluateChromosome(smallChromosome, cfgGamma1);
+    const r2 = sandbox.fitnessEvaluator.evaluateChromosome(smallChromosome, cfgGamma09);
+    expect(r2.fitness).not.toBe(r1.fitness);
   });
 });

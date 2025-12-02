@@ -29,7 +29,8 @@
       reset: domHelpers.getById('reset-btn'),
       demo: domHelpers.getById('demo-btn'),
       exportBest: domHelpers.getById('export-best-btn'),
-      exportRun: domHelpers.getById('export-run-btn')
+      exportRun: domHelpers.getById('export-run-btn'),
+      exportFitness: domHelpers.getById('export-fitness-btn')
     };
 
     refs.statusBadge = domHelpers.getById('status-badge');
@@ -43,7 +44,8 @@
       workersActive: null,
       chunkSizeUsed: null,
       workersActiveDup: null,
-      chunkSizeUsedDup: null
+      chunkSizeUsedDup: null,
+      bestList: domHelpers.getById('best-list')
     };
 
     refs.game = {
@@ -55,6 +57,15 @@
       },
       metricsCanvas: domHelpers.getById('metrics-canvas'),
       context: null
+    };
+
+    refs.populationChart = {
+      svg: domHelpers.getById('population-chart'),
+      tooltip: domHelpers.getById('population-tooltip'),
+      rangeStart: domHelpers.getById('population-range-start'),
+      rangeEnd: domHelpers.getById('population-range-end'),
+      improvementBtn: domHelpers.getById('pop-improvement-btn'),
+      cumulativeBtn: domHelpers.getById('pop-cumulative-btn')
     };
 
     refs.tabs = null;

@@ -49,7 +49,22 @@
    * 10: pelletsRemainingFrac -> [0,1] progreso global: pellets restantes / pellets iniciales
    * 11: stepFraction         -> [0,1] steps / stepLimit
    */
-  const NUM_GENES = 12;
+  const FEATURE_NAMES = [
+    'isWall',
+    'isPellet',
+    'isPowerPellet',
+    'keepDirection',
+    'uTurn',
+    'distToPelletNorm',
+    'distToGhostNorm',
+    'approachingGhost',
+    'fleeingGhost',
+    'localOpenness',
+    'pelletsRemainingFrac',
+    'stepFraction'
+  ];
+
+  const NUM_GENES = FEATURE_NAMES.length;
 
   /**
    * Genera un cromosoma aleatorio uniforme en el rango permitido.
@@ -291,6 +306,7 @@
   // API pública
   window.policyEncoding = {
     NUM_GENES,
+    FEATURE_NAMES,
     GENE_RANGE,
     createRandomChromosome,
     cloneChromosome,

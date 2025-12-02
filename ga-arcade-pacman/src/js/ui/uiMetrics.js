@@ -202,5 +202,6 @@
     renderPlaceholderGraph,
     renderFitnessGraph,
     renderComparisonGraph
+
   };
 })();

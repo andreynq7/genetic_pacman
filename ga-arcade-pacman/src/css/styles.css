@@ -377,3 +377,124 @@ input[type="number"]:focus {
   color: var(--muted);
   font-size: 13px;
 }
+
+.btn.small {
+  padding: 9px 10px;
+  font-size: 12px;
+}
+
+.pop-chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin: 10px 0 6px;
+}
+
+.pop-chart-controls .control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.range-inputs {
+  display: flex;
+  gap: 8px;
+}
+
+.range-inputs input[type="number"] {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.pop-chart-controls .toggles {
+  display: flex;
+  flex-wrap: wrap;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+}
+
+.pop-chart-wrapper {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(0, 188, 212, 0.05), rgba(255, 193, 7, 0.04));
+  padding: 8px;
+}
+
+#population-chart {
+  width: 100%;
+  height: 260px;
+  display: block;
+}
+
+.pop-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 12px;
+  margin: 4px 0 8px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.swatch-improving { background: var(--accent-green); }
+.swatch-stable { background: var(--accent-yellow); }
+.swatch-regress { background: var(--accent-red); }
+.swatch-line {
+  width: 18px;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+  display: inline-block;
+}
+
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  background: rgba(10, 10, 10, 0.92);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  min-width: 160px;
+  z-index: 10;
+}
+
+.chart-tooltip strong {
+  color: var(--accent-yellow);
+}
+
+@media (max-width: 980px) {
+  .pop-chart-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .pop-chart-controls .control-group {
+    min-width: 100%;
+  }
+  .range-inputs {
+    flex-wrap: wrap;
+  }
+  #population-chart {
+    height: 220px;
+  }
+}

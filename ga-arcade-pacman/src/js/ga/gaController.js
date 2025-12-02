@@ -33,6 +33,17 @@
     workerStats: { poolSize: null, chunkSize: null }
   };
 
+  function hashChromosome(arr) {
+    if (!Array.isArray(arr)) return null;
+    let h = 0;
+    for (let i = 0; i < arr.length; i += 1) {
+      const v = Math.floor((Number(arr[i]) || 0) * 1000);
+      h = ((h << 5) - h) + v;
+      h |= 0;
+    }
+    return String(h >>> 0);
+  }
+
   /**
    * Inicializa el GA a partir de la configuración proveniente de la UI.
    * @param {Object} uiConfig Valores numéricos ya validados desde el formulario.
@@ -175,6 +186,7 @@
       });
     });
     if (!tasks.length) return;
+    if (window.logger) window.logger.info('evaluation_start', { generation, total: tasks.length });
     notifyProgress({ stage: 'evaluation', completed: 0, total: tasks.length, generation });
     const poolSize = pool.size || runState.workerOptions.size || 8;
     const uiChunk = runState.workerOptions.chunkSize || 0;
@@ -193,6 +205,7 @@
       }
     });
     notifyProgress({ stage: 'evaluation', completed: tasks.length, total: tasks.length, generation });
+    if (window.logger) window.logger.info('evaluation_done', { generation, total: tasks.length, poolSize: runState.workerStats.poolSize, chunkSize: runState.workerStats.chunkSize });
   }
 
   /** Ejecuta una sola generación; se usa internamente por el loop. */
@@ -216,6 +229,7 @@
       } catch (err) {
         console.warn('gaController: fallo en workers, se continua en hilo principal', err);
         runState.workerOptions.enabled = false;
+        if (window.logger) window.logger.warn('worker_fallback', { message: err && err.message ? err.message : String(err) });
         ({ best, avg } = GA.runGeneration(runState.gaState));
       }
     } else {
@@ -233,6 +247,7 @@
       averageFitness: avg,
       bestEver: runState.gaState.bestEver,
       history: runState.gaState.history,
+      populationSnapshot: runState.gaState.lastPopulationSnapshot,
       totalTimeMs: runState.timing.totalMs,
       avgTimeMs: runState.timing.totalMs / runState.gaState.generation,
       metrics: runState.gaState.lastMetrics,
@@ -240,6 +255,8 @@
       workerChunkSize: useWorkers ? runState.workerStats.chunkSize : null
     };
     console.log('[ga] gen', { gen: info.generation, useWorkers, workerPoolSize: info.workerPoolSize, workerChunkSize: info.workerChunkSize });
+    if (window.logger) window.logger.info('generation', { generation: info.generation, bestFitness: best.fitness, averageFitness: avg, useWorkers, workerPoolSize: info.workerPoolSize, workerChunkSize: info.workerChunkSize, durationMs: duration, totalTimeMs: runState.timing.totalMs });
+    if (window.bestStore) window.bestStore.maybeUpdate(runState.gaState.bestEver, { gaConfig: runState.gaConfig, fitnessConfig: runState.fitnessConfig });
 
     if (runState.callbacks.onGeneration) {
       runState.callbacks.onGeneration(info);
@@ -285,6 +302,7 @@
         totalTimeMs: runState.timing.totalMs
       });
     }
+    if (window.logger) window.logger.info('finish', { bestFitness: runState.gaState?.bestEver ? runState.gaState.bestEver.fitness : null, generations: runState.gaState ? runState.gaState.generation : null, totalTimeMs: runState.timing.totalMs });
   }
 
   function scheduleLoop() {
@@ -318,6 +336,32 @@
       generation: best.generation ?? runState.gaState.generation
     };
   }
+  function getFinalBest() {
+    return getBestInfo();
+  }
+
+  function verifyBestSelection() {
+    const best = getBestInfo();
+    const hist = getHistory();
+    const maxHist = Array.isArray(hist?.bestFitness) && hist.bestFitness.length
+      ? Math.max(...hist.bestFitness)
+      : null;
+    const lastEval = runState.gaState?.lastEvaluatedPopulationFitnesses || [];
+    const maxLast = lastEval.length ? Math.max(...lastEval.filter((x) => Number.isFinite(x))) : null;
+    const consistent = (best?.fitness != null && maxHist != null) ? Math.abs(best.fitness - maxHist) < 1e-6 : null;
+    if (window.logger) window.logger.info('best_verify', { selectedFitness: best?.fitness ?? null, maxHistory: maxHist, maxLastEvaluated: maxLast, consistent });
+    return { selected: best, maxHistory: maxHist, maxLastEvaluated: maxLast, consistent };
+  }
+
+  function verifyDemoSelectionAndLog() {
+    const best = getBestInfo();
+    const hash = hashChromosome(best?.chromosome || []);
+    const prev = runState.lastDemoSelection;
+    const consistentChromosome = prev ? (prev.hash === hash) : null;
+    runState.lastDemoSelection = { hash, fitness: best?.fitness ?? null, generation: best?.generation ?? null };
+    if (window.logger) window.logger.info('demo_verify', { hash, fitness: best?.fitness ?? null, generation: best?.generation ?? null, consistentChromosome });
+    return { hash, consistentChromosome };
+  }
   /** Configuración actual del GA. */
   function getGAConfig() {
     return runState.gaConfig;
@@ -343,6 +387,13 @@
 
   function getMetricsHistory() {
     return runState.gaState?.metricsHistory || [];
+  }
+
+  function getPopulationHistory() {
+    if (GA.getPopulationHistory) {
+      return GA.getPopulationHistory(runState.gaState);
+    }
+    return runState.gaState?.populationHistory || [];
   }
 
   function setWorkersEnabled(flag) {
@@ -379,12 +430,16 @@
     getBestChromosome,
     getBestFitness,
     getBestInfo,
+    getFinalBest,
+    verifyBestSelection,
+    verifyDemoSelectionAndLog,
     getGAConfig,
     getFitnessConfig,
     getStatus,
     getHistory,
     getTiming,
     getMetricsHistory,
+    getPopulationHistory,
     setWorkersEnabled,
     getWorkerOptions,
     getWorkerStats

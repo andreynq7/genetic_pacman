@@ -1,0 +1,18 @@
+// Parámetros de fitness y simulación
+{
+  "episodesPerIndividual": 3,
+  "maxStepsPerEpisode": 2000,
+  "gamma": 0.99,
+  "baseSeed": 0,
+  "episodeSeeds": null,
+  "baseLevel": 1,
+  "curriculumGrowth": 0.15,
+  "maxCurriculumLevel": 6,
+  "completionBonus": 5000,
+  "lifeLossPenalty": 500,
+  "noLifeLossBonus": 2500,
+  "generationOffset": 20,
+  "disableCompletionBonus": false,
+  "stepPenalty": 0,
+  "stallPenalty": 10
+}

@@ -89,7 +89,9 @@
     }));
 
     const finalState = result.finalState;
-    let totalReward = finalState.score || 0; // base: score visible
+    let totalReward = (fitnessConfig.gamma !== 1)
+      ? discountedReturn(result.history, fitnessConfig.gamma)
+      : (finalState.score || 0);
     if (!fitnessConfig.disableCompletionBonus && finalState.status === 'level_cleared') {
       totalReward += fitnessConfig.completionBonus || 0;
     }
@@ -100,13 +102,15 @@
     if (finalState.status === 'level_cleared' && lifeLosses === 0 && fitnessConfig.noLifeLossBonus) {
       totalReward += fitnessConfig.noLifeLossBonus;
     }
-    const stepPenalty = fitnessConfig.stepPenalty || 0;
-    if (stepPenalty) {
-      totalReward -= stepPenalty * (result.steps || 0);
-    }
-    const stallPenalty = fitnessConfig.stallPenalty || 0;
-    if (stallPenalty && finalState.stallCount) {
-      totalReward -= stallPenalty * finalState.stallCount;
+    if (fitnessConfig.gamma === 1) {
+      const stepPenalty = fitnessConfig.stepPenalty || 0;
+      if (stepPenalty) {
+        totalReward -= stepPenalty * (result.steps || 0);
+      }
+      const stallPenalty = fitnessConfig.stallPenalty || 0;
+      if (stallPenalty && finalState.stallCount) {
+        totalReward -= stallPenalty * finalState.stallCount;
+      }
     }
     return {
       reward: totalReward,
@@ -216,3 +220,15 @@
     evaluateChromosome
   };
 })();
+  function discountedReturn(history, gamma) {
+    const g = Math.max(0, Math.min(1, Number(gamma) || 0));
+    let G = 0;
+    let pow = 1;
+    const len = Array.isArray(history) ? history.length : 0;
+    for (let i = 0; i < len; i += 1) {
+      const r = Number(history[i] && history[i].reward) || 0;
+      G += pow * r;
+      pow *= g;
+    }
+    return G;
+  }

@@ -63,7 +63,7 @@ describe('gaController integration', () => {
     expect(sandbox.gaController.getStatus().status).toBe('finished');
   });
 
-  it('usa workerPool y emite progreso durante evaluaci�n', async () => {
+  it('usa workerPool y emite progreso durante evaluacin', async () => {
     const progress = [];
     const pool = {
       evaluateChromosomes: vi.fn(async (tasks) => tasks.map((t) => ({ index: t.index, fitness: 1, evalStats: { ok: true } }))),
@@ -88,5 +88,55 @@ describe('gaController integration', () => {
     await vi.runAllTimersAsync();
     expect(pool.evaluateChromosomes).toHaveBeenCalledTimes(1);
     expect(progress.some((p) => p?.stage === 'evaluation')).toBe(true);
+  });
+
+  it('retorna el mejor individuo final y coincide con el mximo de history', async () => {
+    const uiConfig = {
+      populationSize: 5,
+      generations: 3,
+      selectionRate: 40,
+      crossoverRate: 40,
+      mutationRate: 20,
+      tournamentSize: 2,
+      randomSeed: 7,
+      episodesPerIndividual: 1,
+      maxStepsPerEpisode: 50
+    };
+    sandbox.gaController.initializeFromUI(uiConfig);
+    let summary = null;
+    sandbox.gaController.start(() => {}, (s) => { summary = s; });
+    await vi.runAllTimersAsync();
+    const finalBest = sandbox.gaController.getFinalBest();
+    expect(summary).toBeTruthy();
+    expect(finalBest).toBeTruthy();
+    expect(summary.bestEver?.fitness).toBe(finalBest.fitness);
+    const hist = sandbox.gaController.getHistory();
+    const maxHist = Math.max(...hist.bestFitness);
+    expect(finalBest.fitness).toBeCloseTo(maxHist, 6);
+  });
+
+  it('verifica selección y consistencia del demo sin modificar población', async () => {
+    const uiConfig = {
+      populationSize: 6,
+      generations: 3,
+      selectionRate: 40,
+      crossoverRate: 40,
+      mutationRate: 20,
+      tournamentSize: 2,
+      randomSeed: 11,
+      episodesPerIndividual: 1,
+      maxStepsPerEpisode: 40
+    };
+    sandbox.gaController.initializeFromUI(uiConfig);
+    sandbox.gaController.start(() => {}, () => {});
+    await vi.runAllTimersAsync();
+    const beforePop = sandbox.gaController.getStatus().generation;
+    const verify = sandbox.gaController.verifyBestSelection();
+    expect(verify.consistent).toBe(true);
+    const demo1 = sandbox.gaController.verifyDemoSelectionAndLog();
+    const demo2 = sandbox.gaController.verifyDemoSelectionAndLog();
+    expect(demo1.hash).toBe(demo2.hash);
+    const afterPop = sandbox.gaController.getStatus().generation;
+    expect(afterPop).toBe(beforePop);
   });
 });

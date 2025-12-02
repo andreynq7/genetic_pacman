@@ -16,9 +16,16 @@
   let fpsMeasure = { last: 0, frames: 0, fps: 0 };
   let lifeLossInProgress = false;
 
-  function initApp() {
+  function getUiDefaults() {
+    const ga = (window.appConfig && window.appConfig.ga) || (window.defaultConfig || {});
+    const fit = (window.appConfig && window.appConfig.fitness) || {};
+    return { ...ga, episodesPerIndividual: fit.episodesPerIndividual ?? ga.episodesPerIndividual };
+  }
+
+  async function initApp() {
+    try { if (window.configLoader && window.configLoader.load) await window.configLoader.load(); } catch (_) {}
     refs = uiLayout.getRefs();
-    uiForms.applyDefaults(refs, window.defaultConfig || {});
+    uiForms.applyDefaults(refs, getUiDefaults());
     uiForms.bindFormValidation(refs);
     uiForms.validateParametersForm(refs);
     if (window.audioManager) {
@@ -35,7 +42,8 @@
       onReset: handleReset,
       onDemo: handleDemoBest,
       onExportBest: handleExportBest,
-      onExportRun: handleExportRun
+      onExportRun: handleExportRun,
+      onExportFitness: handleExportFitness
     });
 
 
@@ -48,6 +56,10 @@
       averageTime: '0 s'
     });
     uiMetrics.updateStatusBadge('Idle', 'idle');
+    if (window.populationChart) {
+      populationChart.init(refs);
+      populationChart.setData([]);
+    }
 
     gameView.preloadSprites().finally(() => {
       setupGame();
@@ -84,7 +96,7 @@
   function handleStartTraining() {
     if (!uiForms.validateParametersForm(refs)) return;
     stopDemo();
-    const uiConfig = uiForms.readUIConfig(refs, window.defaultConfig || {});
+    const uiConfig = uiForms.readUIConfig(refs, getUiDefaults());
     gaController.initializeFromUI(uiConfig);
     uiMetrics.updateStatusBadge('Entrenando', 'training');
     uiMetrics.renderFitnessGraph(refs, [], []);
@@ -107,7 +119,7 @@
   function handleExtendTraining() {
     if (!uiForms.validateParametersForm(refs)) return;
     stopDemo();
-    const uiConfig = uiForms.readUIConfig(refs, window.defaultConfig || {});
+    const uiConfig = uiForms.readUIConfig(refs, getUiDefaults());
     const extraGenerations = Math.max(1, Math.floor(uiConfig.generations || 0));
     const status = gaController.getStatus();
 
@@ -140,6 +152,9 @@
       averageTime: '0 s'
     });
     uiMetrics.renderPlaceholderGraph(refs);
+    if (window.populationChart) {
+      populationChart.setData([]);
+    }
     setupGame();
   }
 
@@ -163,12 +178,23 @@
       chunkSizeUsed
     });
     uiMetrics.renderFitnessGraph(refs, info.history.bestFitness, info.history.avgFitness);
+    //uiMetrics.renderBestIndividuals(refs, gaController.getHistory().bestIndividuals || []);
+    if (window.populationChart) {
+      if (info.populationSnapshot) {
+        populationChart.addSnapshot(info.populationSnapshot);
+      } else {
+        populationChart.setData(gaController.getPopulationHistory());
+      }
+    }
   }
 
   function onTrainingFinished(summary) {
     uiMetrics.updateStatusBadge('Terminado', 'training');
     if (summary?.history) {
       uiMetrics.renderFitnessGraph(refs, summary.history.bestFitness, summary.history.avgFitness);
+    }
+    if (window.populationChart) {
+      populationChart.setData(gaController.getPopulationHistory());
     }
     const status = gaController.getStatus();
     const enabled = gaController.getWorkerOptions ? !!gaController.getWorkerOptions().enabled : true;
@@ -210,9 +236,11 @@
   function handleDemoBest() {
     stopDemo();
     hideGameOverModal();
+    if (gaController.verifyBestSelection) gaController.verifyBestSelection();
     const best = gaController.getBestChromosome();
     if (best) {
       demoPolicyFn = policyEncoding.policyFromChromosome(best, { tieBreak: 'random' });
+      if (gaController.verifyDemoSelectionAndLog) gaController.verifyDemoSelectionAndLog();
     } else {
       demoPolicyFn = () => gameLogic.getRandomAction(currentState);
     }
@@ -300,14 +328,52 @@
     };
     const logsExport = {
       history,
+      //bestIndividuals: gaController.getHistory()?.bestIndividuals || [],
       metricsHistory: gaController.getMetricsHistory(),
       generationCount: status.generation,
       timing: gaController.getTiming(),
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      logs: (window.logger && window.logger.dump) ? window.logger.dump() : []
     };
     const ts = formatTimestampForFile();
     downloadJson(configExport, `config_run_${ts}.json`);
     downloadJson(logsExport, `logs_run_${ts}.json`);
+  }
+
+  function downloadText(text, filename) {
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function formatTimestampForFile() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  }
+
+  function handleExportFitness() {
+    const hist = gaController.getHistory();
+    const bestIndividuals = hist?.bestIndividuals || [];
+    const lines = [];
+    for (let i = 0; i < (hist?.bestFitness?.length || 0); i += 1) {
+      const entry = {
+        generation: i + 1,
+        bestFitness: hist.bestFitness[i],
+        avgFitness: hist.avgFitness?.[i] ?? null,
+        bestIndividual: bestIndividuals?.[i] ?? null
+      };
+      lines.push(JSON.stringify(entry));
+    }
+    const ts = formatTimestampForFile();
+    downloadText(lines.join('\n'), `fitness_history_${ts}.jsonl`);
   }
 
   // ----------------- Simulación de juego y entrada -----------------

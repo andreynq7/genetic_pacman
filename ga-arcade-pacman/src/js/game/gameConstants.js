@@ -82,7 +82,7 @@
     ],
     lives: 3,
     powerDurationSteps: 60,
-    stepLimit: 1000 
+    stepLimit: 1000
   };
 
   const GHOST_MODES = {
@@ -151,11 +151,16 @@
     ghostChaseMax: 0.85
   };
 
-  const FRIGHTENED = {
-    speedMin: 0.45,     // ~50% de velocidad base para bajar agresividad
-    speedMax: 0.55,     // rango estrecho para mantenerlo suave
-    speedJitter: 0.05,  // menos variacion aleatoria
-    accel: 0.06         // transiciones mas suaves entre objetivos de velocidad
+  const FRIGHTENED = {
+
+    speedMin: 1,     // ~50% de velocidad base para bajar agresividad
+
+    speedMax: 1,     // rango estrecho para mantenerlo suave
+
+    speedJitter: 0,  // menos variacion aleatoria
+
+    accel: 0         // transiciones mas suaves entre objetivos de velocidad
+
   };
 
   const TIMING = {
