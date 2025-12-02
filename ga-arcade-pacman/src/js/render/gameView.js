@@ -1,76 +1,49 @@
-﻿// Tile-based rendering for the Pac-Man board. Keeps grid data and helpers
+// Tile-based rendering for the Pac-Man board. Keeps grid data and helpers
 // available for the future game/GA logic (collisions, movement, pellets).
 (function() {
   // Tile metadata
   const TILE_SIZE = 16;
   const MAP_COLS = 28;
   const MAP_ROWS = 31;
-//   const MAP_COLS = 22;
-//   const MAP_ROWS = 20;
   const STEP_MS = 100;
 
-  // Legend:
-  // W = Wall
-  // . = Pellet
-  // o = Power pellet
-  //   = Empty path
-  // G = Ghost house gate/area
-  // P = Suggested Pac-Man spawn
-  const LEVEL_MAP = [
-    'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
-    'W............WW............W',
-    'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
-    'WoWWWW.WWWWW.WW.WWWWW.WWWWoW',
-    'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
-    'W..........................W',
-    'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
-    'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
-    'W.WWWW.WW..........WW.WWWW.W',
-    'W.WWWW.WWWWW WW WWWWW.WWWW.W',
-    'W...WW.WWWWW WW WWWWW.WW...W',
-    'WWW.WW....        ....WW.WWW',
-    'WWW.WW.WW.WWGGGGWW.WW.WW.WWW',
-    'WWW.WW.WW.WWCCCCWW.WW.WW.WWW',
-    'W......WW.WWWWWWWW.WW......W',
-    'W.WWWW.WW....WW....WW.WWWW.W',
-    'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
-    'Wo..WW................WW..oW',
-    'WWW.WWWWW.WWWWWWWW.WWWWW.WWW',
-    'WWW.WWWWW.WWWWWWWW.WWWWW.WWW',
-    'W......WW....WW....WW......W',
-    'W.WWWW....WW.WW.WW....WWWW.W',
-    'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
-    'W............WW............W',
-    'W.WWWWWWW.WWWWWWWW.WWWWWWW.W',
-    'W.WWWWWWW.WWWWWWWW.WWWWWWW.W',
-    'W.....o......WW......o.....W',
-    'WoWW.WWWWWWW.WW.WWWWWWW.WWoW',
-    'W.WW.WWWWWWW.WW.WWWWWWW.WW.W',
-    'W..............P...........W',
-    'WWWWWWWWWWWWWWWWWWWWWWWWWWWW'
-  ];
-// const LEVEL_MAP = [
-//   'WWWWWWWWWWWWWWWWWWWWWW',
-//   'W....................W',
-//   'W.W.WWWW.WWWW.WWWW.W.W',
-//   'WoW.W  WoWWWW.W  WoWoW',
-//   'W.W.WWWW.WWWW.WWWW.W.W',
-//   'W....................W',
-//   'W.WWWW.WWWWWWWW.WWWW.W',
-//   'W.WWWW..........WWWW.W',
-//   'W.WWWW.WWGGGGWW.WWWW.W',
-//   'W......WWCCCCWW......W',
-//   'W.WWWW.WWWWWWWW.WWWW.W',
-//   'W.WWWW..........WWWW.W',
-//   'W.WWWW.WWWWWWWW.WWWW.W',
-//   'W....................W',
-//   'W.WWWW.W.WWWW.W.WWWW.W',
-//   'Wo.....W.WWWW.W......W',
-//   'W.WWWW.W.WWWW.W.WWWW.W',
-//   'W.WWWW.W.WWWW.W.WWWW.W',
-//   'W...........P........W',
-//   'WWWWWWWWWWWWWWWWWWWWWW'
-// ];
+  function getLevelMap() {
+    const gc = window.gameConstants;
+    if (gc && Array.isArray(gc.LEVEL_MAP) && gc.LEVEL_MAP.length) return gc.LEVEL_MAP;
+    return [
+      'WWWWWWWWWWWWWWWWWWWWWWWWWWWW',
+      'W............WW............W',
+      'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+      'WoWWWW.WWWWW.WW.WWWWW.WWWWoW',
+      'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+      'W..........................W',
+      'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
+      'W.WWWW.WW.WWWWWWWW.WW.WWWW.W',
+      'W.WWWW.WW..........WW.WWWW.W',
+      'W.WWWW.WWWWW WW WWWWW.WWWW.W',
+      'W...WW.WWWWW WW WWWWW.WW...W',
+      'WWW.WW....        ....WW.WWW',
+      'WWW.WW.WW.WWGGGGWW.WW.WW.WWW',
+      'WWW.WW.WW.WWCCCCWW.WW.WW.WWW',
+      'W......WW.WWWWWWWW.WW......W',
+      'W.WWWW.WW....WW....WW.WWWW.W',
+      'W.WWWW.WWWWW.WW.WWWWW.WWWW.W',
+      'Wo..WW................WW..oW',
+      'WWW.WWWWW.WWWWWWWW.WWWWW.WWW',
+      'WWW.WWWWW.WWWWWWWW.WWWWW.WWW',
+      'W......WW....WW....WW......W',
+      'W.WWWW....WW.WW.WW....WWWW.W',
+      'W.WWWWWWWWWW.WW.WWWWWWWWWW.W',
+      'W............WW............W',
+      'W.WWWWWWW.WWWWWWWW.WWWWWWW.W',
+      'W.WWWWWWW.WWWWWWWW.WWWWWWW.W',
+      'W.....o......WW......o.....W',
+      'WoWW.WWWWWWW.WW.WWWWWWW.WWoW',
+      'W.WW.WWWWWWW.WW.WWWWWWW.WW.W',
+      'W..............P...........W',
+      'WWWWWWWWWWWWWWWWWWWWWWWWWWWW'
+    ];
+  }
 
   const TILE_TYPES = {
     WALL: 'W',
@@ -90,7 +63,6 @@
     ghost: '#00bcd4'
   };
 
-  // Sprites
   const pacmanSprites = loadPacmanSprites();
   const ghostSprites = loadGhostSprites();
   const defaultGhostSprite = getDefaultGhostSprite(ghostSprites);
@@ -137,15 +109,10 @@
 
   function drawLevel(ctx = cachedCtx, levelMatrix) {
     if (!ctx) return;
-    const matrix = levelMatrix || LEVEL_MAP;
+    const matrix = levelMatrix || getLevelMap();
     drawLevelMatrix(ctx, matrix);
   }
 
-  /**
-   * Dibuja el nivel a partir de una matriz (array de strings o de arrays).
-   * @param {CanvasRenderingContext2D} ctx
-   * @param {string[]|string[][]} matrix
-   */
   function drawLevelMatrix(ctx, matrix) {
     clearBoard(ctx);
     for (let row = 0; row < MAP_ROWS; row += 1) {
@@ -190,11 +157,6 @@
     }
   }
 
-  /**
-   * Dibuja entidades dinámicas (Pac-Man y fantasmas) sobre el mapa.
-   * @param {CanvasRenderingContext2D} ctx
-   * @param {Object} state
-   */
   function drawEntities(ctx, state, alpha = 1) {
     if (!state) return;
     const pac = state.pacman;
@@ -237,11 +199,6 @@
     }
   }
 
-  /**
-   * Render completo de un frame con estado dinámico.
-   * @param {CanvasRenderingContext2D} ctx
-   * @param {Object} state
-   */
   function renderFrame(ctx, state, alpha = 1) {
     if (!ctx) return;
     if (state?.map) {
@@ -261,48 +218,20 @@
     ctx.fill();
   }
 
-  function gridToPixel(col, row) {
-    return { x: col * TILE_SIZE, y: row * TILE_SIZE };
-  }
-
-  function gridCenter(col, row) {
-    const { x, y } = gridToPixel(col, row);
-    return { x: x + TILE_SIZE / 2, y: y + TILE_SIZE / 2 };
-  }
-
+  function gridToPixel(col, row) { return { x: col * TILE_SIZE, y: row * TILE_SIZE }; }
+  function gridCenter(col, row) { const { x, y } = gridToPixel(col, row); return { x: x + TILE_SIZE / 2, y: y + TILE_SIZE / 2 }; }
   function gridToPixelLerped(prevCol, prevRow, col, row, alpha) {
     const lerp = (a, b, t) => a + (b - a) * t;
     const c = lerp(prevCol, col, Math.max(0, Math.min(1, alpha)));
     const r = lerp(prevRow, row, Math.max(0, Math.min(1, alpha)));
     return { x: c * TILE_SIZE, y: r * TILE_SIZE };
   }
-
-  function pixelToGrid(x, y) {
-    return { col: Math.floor(x / TILE_SIZE), row: Math.floor(y / TILE_SIZE) };
-  }
-
-  function isInsideGrid(col, row) {
-    return col >= 0 && col < MAP_COLS && row >= 0 && row < MAP_ROWS;
-  }
-
-  function getTile(col, row) {
-    if (!isInsideGrid(col, row)) return null;
-    return LEVEL_MAP[row][col];
-  }
-
-  function isWall(col, row) {
-    return getTile(col, row) === TILE_TYPES.WALL;
-  }
-
-  function isWalkable(col, row) {
-    const tile = getTile(col, row);
-    if (!tile) return false;
-    return tile !== TILE_TYPES.WALL;
-  }
-
-  function isGhostGate(col, row) {
-    return getTile(col, row) === TILE_TYPES.GHOST_GATE;
-  }
+  function pixelToGrid(x, y) { return { col: Math.floor(x / TILE_SIZE), row: Math.floor(y / TILE_SIZE) }; }
+  function isInsideGrid(col, row) { return col >= 0 && col < MAP_COLS && row >= 0 && row < MAP_ROWS; }
+  function getTile(col, row) { if (!isInsideGrid(col, row)) return null; const m = getLevelMap(); return m[row][col]; }
+  function isWall(col, row) { return getTile(col, row) === TILE_TYPES.WALL; }
+  function isWalkable(col, row) { const tile = getTile(col, row); if (!tile) return false; return tile !== TILE_TYPES.WALL; }
+  function isGhostGate(col, row) { return getTile(col, row) === TILE_TYPES.GHOST_GATE; }
 
   function collectRenderableGhosts(state) {
     const seen = new Set();
@@ -320,19 +249,9 @@
     return list;
   }
 
-  function getMapDimensions() {
-    return {
-      cols: MAP_COLS,
-      rows: MAP_ROWS,
-      tileSize: TILE_SIZE,
-      widthPx: MAP_COLS * TILE_SIZE,
-      heightPx: MAP_ROWS * TILE_SIZE
-    };
-  }
-
   window.gameView = {
     initGameView,
-    initGameCanvas: initGameView, // alias for backward compatibility
+    initGameCanvas: initGameView,
     drawLevel,
     drawLevelMatrix,
     drawEntities,
@@ -343,19 +262,11 @@
     isWall,
     isWalkable,
     isGhostGate,
-    getMapDimensions,
+    getMapDimensions: () => ({ cols: MAP_COLS, rows: MAP_ROWS, tileSize: TILE_SIZE, widthPx: MAP_COLS * TILE_SIZE, heightPx: MAP_ROWS * TILE_SIZE }),
     preloadSprites,
-    constants: {
-      TILE_SIZE,
-      MAP_COLS,
-      MAP_ROWS,
-      STEP_MS,
-      LEVEL_MAP,
-      TILE_TYPES
-    }
+    constants: { TILE_SIZE, MAP_COLS, MAP_ROWS, STEP_MS, TILE_TYPES }
   };
 
-  // --------------- Sprites helpers ---------------
   function loadImage(src) {
     const sprite = { img: new Image(), ready: false, error: false, src };
     sprite.img.onload = () => { sprite.ready = true; };
@@ -435,14 +346,8 @@
     return new Promise((resolve) => {
       const start = Date.now();
       const tick = () => {
-        if (readyCheck()) {
-          resolve(true);
-          return;
-        }
-        if ((Date.now() - start) >= timeoutMs) {
-          resolve(false);
-          return;
-        }
+        if (readyCheck()) { resolve(true); return; }
+        if ((Date.now() - start) >= timeoutMs) { resolve(false); return; }
         setTimeout(tick, 50);
       };
       tick();
@@ -486,17 +391,9 @@
     const fallback = palette[idx % palette.length];
     const original = ghost?.originalColor || fallback;
     if (!ghost) return fallback;
-    if (!ghost.originalColor) {
-      ghost.originalColor = original;
-    }
-    if (!ghost.color || !palette.includes(ghost.color)) {
-      console.warn('[ghost-color] color inválido, corrigiendo', { id: ghost.id, was: ghost.color, to: original });
-      ghost.color = original;
-    }
-    if (ghost.color !== ghost.originalColor) {
-      console.warn('[ghost-color] desviación detectada, revirtiendo', { id: ghost.id, was: ghost.color, to: ghost.originalColor });
-      ghost.color = ghost.originalColor;
-    }
+    if (!ghost.originalColor) { ghost.originalColor = original; }
+    if (!ghost.color || !palette.includes(ghost.color)) { console.warn('[ghost-color] color inválido, corrigiendo', { id: ghost.id, was: ghost.color, to: original }); ghost.color = original; }
+    if (ghost.color !== ghost.originalColor) { console.warn('[ghost-color] desviación detectada, revirtiendo', { id: ghost.id, was: ghost.color, to: ghost.originalColor }); ghost.color = ghost.originalColor; }
     return ghost.color;
   }
 
@@ -528,23 +425,14 @@
     return sprite || null;
   }
 
-  function normalizeDirKey(dir) {
-    if (dir === 'UP' || dir === 'DOWN' || dir === 'LEFT' || dir === 'RIGHT') return dir;
-    return 'LEFT';
-  }
+  function normalizeDirKey(dir) { if (dir === 'UP' || dir === 'DOWN' || dir === 'LEFT' || dir === 'RIGHT') return dir; return 'LEFT'; }
 
   function drawGhostEyes(ctx, ghost, x, y, stepCount) {
     const blinkDim = isEyesBlinkDimmed(ghost, stepCount);
     const sprite = getEyesSprite(ghost);
     ctx.save();
-    if (blinkDim) {
-      ctx.globalAlpha = 0.35;
-    }
-    if (sprite?.ready) {
-      ctx.drawImage(sprite.img, x, y, TILE_SIZE, TILE_SIZE);
-    } else {
-      drawEyesFallback(ctx, x, y);
-    }
+    if (blinkDim) { ctx.globalAlpha = 0.35; }
+    if (sprite?.ready) { ctx.drawImage(sprite.img, x, y, TILE_SIZE, TILE_SIZE); } else { drawEyesFallback(ctx, x, y); }
     ctx.restore();
   }
 
@@ -554,13 +442,11 @@
     const eyeOffset = TILE_SIZE * 0.18;
     const eyeRadius = TILE_SIZE * 0.12;
     const pupilRadius = TILE_SIZE * 0.08;
-
     ctx.fillStyle = '#f0f0f0';
     ctx.beginPath();
     ctx.arc(centerX - eyeOffset, centerY - eyeOffset, eyeRadius, 0, Math.PI * 2);
     ctx.arc(centerX + eyeOffset, centerY - eyeOffset, eyeRadius, 0, Math.PI * 2);
     ctx.fill();
-
     ctx.fillStyle = '#3f51b5';
     ctx.beginPath();
     ctx.arc(centerX - eyeOffset, centerY - eyeOffset, pupilRadius, 0, Math.PI * 2);
@@ -570,8 +456,7 @@
 
   function isEyesBlinkDimmed(ghost, stepCount) {
     const c = window.gameConstants || {};
-    const blinkSteps = c.GHOST_BLINK_STEPS
-      || Math.max(1, Math.round(((c.TIMING?.ghostBlinkMs) || 250) / ((c.TIMING?.stepDurationMs) || STEP_MS)));
+    const blinkSteps = c.GHOST_BLINK_STEPS || Math.max(1, Math.round(((c.TIMING?.ghostBlinkMs) || 250) / ((c.TIMING?.stepDurationMs) || STEP_MS)));
     const ticks = Math.max(0, (stepCount || 0) - (ghost?.eyeBlinkStartStep || 0));
     return ((Math.floor(ticks / blinkSteps)) % 2) === 1;
   }
