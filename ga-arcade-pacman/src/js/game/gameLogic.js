@@ -11,14 +11,22 @@
   const STEP_MS = (C?.TIMING?.stepDurationMs) || 100;
   const RESPAWN_WAIT_STEPS = Math.max(1, C.GHOST_RESPAWN_STEPS || Math.round(((C.TIMING?.ghostRespawnMs) || 3000) / STEP_MS));
 
-  /**
-   * Ejecuta un paso de simulación discreto.
-   * Nota: la acción propuesta puede ser anulada en modo power para perseguir
-   * fantasmas comestibles con A* en tiempo real.
-   * @param {Object} state Estado actual (no se muta; se clona dentro).
-   * @param {string} action Acción discreta (gameConstants.ACTIONS).
-   * @returns {{state:Object,reward:number,done:boolean,info:Object}}
-   */
+/**
+ * The function `stepGame` processes a single step in a game, updating the game state based on the
+ * given action and returning rewards, game status, and additional information.
+ * @param state - The `state` parameter in the `stepGame` function represents the current state of the
+ * game. It contains information such as the game status, Pac-Man's position, the number of pellets
+ * remaining, the number of lives left, and various other game-related data.
+ * @param action - The `action` parameter in the `stepGame` function represents the action that the
+ * player takes in the game. It could be the direction in which the player wants to move the character,
+ * such as 'up', 'down', 'left', or 'right', depending on the game mechanics. The
+ * @returns The function `stepGame` returns an object with the following properties:
+ * - `state`: the updated game state after taking a step
+ * - `reward`: the reward earned during the step
+ * - `done`: a boolean indicating if the game is done or not
+ * - `info`: an object containing various information about the game state and events that occurred
+ * during the step
+ */
   function stepGame(state, action) {
     const next = STATE.cloneState(state);
     next.lifeLostThisStep = false;
@@ -98,19 +106,37 @@
     return { state: next, reward, done, info };
   }
 
-  /**
-   * Selecciona la acción efectiva, anulando la acción de la política si hay modo power
-   * y fantasmas comestibles, persiguiéndolos con A* en tiempo real.
-   * @param {Object} state
-   * @param {string} proposedAction
-   */
+
+/**
+ * The function `chooseActionWithOverrides` returns the proposed action unless overridden by the result
+ * of `chooseActionChasingGhost`.
+ * @param state - The `state` parameter typically represents the current state of the game or
+ * application. It contains information such as the player's position, the positions of other entities,
+ * the game board layout, and any other relevant data needed to make decisions or update the game
+ * state.
+ * @param proposedAction - The `proposedAction` parameter is the action that is suggested or
+ * recommended to be taken based on the current state of the system or application.
+ * @returns If `chooseActionChasingGhost(state)` returns a value (ghostOverride), that value will be
+ * returned. Otherwise, the proposedAction will be returned.
+ */
   function chooseActionWithOverrides(state, proposedAction) {
     const ghostOverride = chooseActionChasingGhost(state);
     if (ghostOverride) return ghostOverride;
     return proposedAction;
   }
 
-  // Decide si perseguir un fantasma vulnerable evaluando costo/beneficio y seguridad.
+
+/**
+ * The function `chooseActionChasingGhost` determines the next action for the player to chase a
+ * frightened ghost based on various game state conditions.
+ * @param state - The `state` parameter in the `chooseActionChasingGhost` function represents the
+ * current state of the game. It likely contains information such as the power timer, the remaining
+ * pellets, the position of the player (pacman), the position of ghosts, and possibly other
+ * game-related data. The function
+ * @returns The function `chooseActionChasingGhost` returns the direction for the Pacman to move in
+ * order to chase and eat the nearest frightened ghost, based on the game state and certain conditions.
+ * If the conditions are not met or if it's not safe to chase the ghost, the function returns `null`.
+ */
   function chooseActionChasingGhost(state) {
     if (state.powerTimer <= 0) return null;
     const frightenedGhost = getNearestFrightenedGhost(state);
@@ -137,10 +163,19 @@
     return directionFromStep(state.pacman, nextStep);
   }
 
+ /**
+  * The function `invalidatePowerPathCache` sets the `powerPathCache` variable to `null`.
+  */
   function invalidatePowerPathCache() {
     powerPathCache = null;
   }
 
+  /**
+   * Returns a cached power-mode path to a frightened ghost when still valid, otherwise recomputes it with A*.
+   * @param {Object} state - Current game state used to validate the cached path and track metrics.
+   * @param {Object} ghost - Target frightened ghost including its id and current position.
+   * @returns {Array<{col:number,row:number}>|null} Cached or newly computed path from Pac-Man to the ghost.
+   */
   function getCachedPowerPath(state, ghost) {
     const interval = C.BALANCE?.powerPathRecalcInterval ?? 2;
     const maxRadius = C.BALANCE?.powerPathMaxRadius ?? Infinity;
@@ -241,6 +276,11 @@
     return reward;
   }
 
+  /**
+   * Otorga una recompensa extra al alcanzar un umbral de pellets restantes.
+   * @param {Object} state - Estado con contadores de pellets y bandera de milestone.
+   * @param {(reward:number)=>void} onReward - Callback opcional para sumar la recompensa al paso actual.
+   */
   function checkPelletMilestone(state, onReward) {
     const thresholdFrac = C.BALANCE?.pelletMilestoneThreshold ?? 0;
     const bonus = C.BALANCE?.pelletMilestoneReward ?? 0;
@@ -312,6 +352,11 @@
     return reward;
   }
 
+  /**
+   * Handles the respawn delay after Pac-Man loses a life, toggling running status when the timer ends.
+   * @param {Object} state - Mutable game state containing respawn timers, status flags, and actor data.
+   * @returns {{reason:string,lives:number,lifeLost:boolean,respawnTimerSteps:number}} Info snapshot reflecting the respawn countdown result.
+   */
   function processRespawnCountdown(state) {
     const delay = C.RESPAWN_DELAY_STEPS || 1;
     const current = (state.respawnTimerSteps == null || state.respawnTimerSteps <= 0) ? delay : state.respawnTimerSteps;
@@ -446,12 +491,26 @@
     return moves;
   }
 
+  /**
+   * Detecta si la celda actual es una intersección (más de un camino sin contar reversa).
+   * @param {string[][]} map - Mapa de tiles.
+   * @param {number} col - Columna actual.
+   * @param {number} row - Fila actual.
+   * @param {string} currentDir - Dirección actual.
+   * @returns {boolean} True si hay al menos dos opciones sin incluir la reversa.
+   */
   function isIntersection(map, col, row, currentDir) {
     const options = getValidMoves(map, col, row, true);
     const withoutReverse = options.filter((opt) => opt.action !== oppositeDirection(currentDir));
     return withoutReverse.length > 1;
   }
 
+  /**
+   * Indica si un fantasma puede moverse este tick según su acumulador de velocidad.
+   * @param {Object} state - Estado actual para ajustar velocidad objetivo.
+   * @param {Object} ghost - Fantasma evaluado.
+   * @returns {boolean} True si el fantasma avanza una celda en este paso.
+   */
   function ghostShouldMove(state, ghost) {
     if (ghost.waitingToRespawn) return false;
     updateGhostSpeedTowardsTarget(ghost);
@@ -463,6 +522,11 @@
     return false;
   }
 
+  /**
+   * Gestiona la cola de pendingGhosts y programa su salida o spawn directo según haya casa.
+   * @param {Object} state - Estado con la lista de pendingGhosts y temporizadores.
+   * @param {Object} events - Contenedor de eventos para reporte de respawn.
+   */
   function updateGhostSpawns(state, events) {
     if (!state.pendingGhosts || !state.pendingGhosts.length) return;
     state.nextGhostSpawnSteps = (state.nextGhostSpawnSteps ?? state.ghostSpawnIntervalSteps ?? 1) - 1;
@@ -475,12 +539,22 @@
     state.nextGhostSpawnSteps = state.pendingGhosts.length ? (state.ghostSpawnIntervalSteps || 1) : 0;
   }
 
+  /**
+   * Indica si hay celdas definidas para el contenedor/casa de fantasmas.
+   * @param {Object} state - Estado con snapshot o contenedores en vivo.
+   * @returns {boolean} True si existe al menos una celda de casa.
+   */
   function hasGhostContainer(state) {
     const cells = state.ghostContainerCells || state.levelSnapshot?.ghostContainerCells || [];
     if (Array.isArray(cells) && cells.length > 0) return true;
     return Array.isArray(state.ghostPen) && state.ghostPen.length > 0;
   }
 
+  /**
+   * Mueve un fantasma pendiente a la casa y lo prepara para iniciar su salida.
+   * @param {Object} state - Estado con pendingGhosts y ghostPen.
+   * @param {Object} events - Contenedor de eventos (sin modificar en la casa).
+   */
   function scheduleGhostExit(state, events) {
     if (!state.pendingGhosts || !state.pendingGhosts.length) return;
     const next = state.pendingGhosts.shift();
@@ -493,6 +567,11 @@
     if (events) events.returningGhosts = (events.returningGhosts || 0);
   }
 
+  /**
+   * Inicializa flags de salida de un fantasma y calcula su ruta hasta la puerta.
+   * @param {Object} state - Estado con mapa y spawn points.
+   * @param {Object} ghost - Fantasma que comenzará a salir.
+   */
   function prepareGhostForExit(state, ghost) {
     ghost.leavingPen = true;
     ghost.penExitStep = 0;
@@ -509,6 +588,11 @@
     ghost.frightenedSpeedTarget = 1;
   }
 
+  /**
+   * Instancia y activa el siguiente fantasma pendiente en un punto de spawn.
+   * @param {Object} state - Estado con configuración de aparición y lista de fantasmas activos.
+   * @param {Object} events - Contenedor de eventos de retorno.
+   */
   function spawnNextGhost(state, events) {
     if (!state.pendingGhosts || !state.pendingGhosts.length) return;
     const next = state.pendingGhosts.shift();
@@ -536,6 +620,10 @@
     if (events) events.returningGhosts = (events.returningGhosts || 0);
   }
 
+  /**
+   * Actualiza fantasmas dentro de la casa, haciendo que caminen o sigan su ruta de salida.
+   * @param {Object} state - Estado con ghostPen, mapa y contenedor de la casa.
+   */
   function updateGhostPen(state) {
     if (!state.ghostPen || !state.ghostPen.length) return;
     if (!hasGhostContainer(state)) return;
@@ -559,6 +647,14 @@
     state.ghostPen = remaining;
   }
 
+  /**
+   * Desplaza aleatoriamente un fantasma dentro de la casa evitando celdas ocupadas.
+   * @param {Object} state - Estado con configuraciones del contenedor.
+   * @param {Object} ghost - Fantasma que permanece en la casa.
+   * @param {Set<string>} containerKeys - Celdas válidas del contenedor.
+   * @param {Set<string>} occupied - Celdas ya ocupadas en este tick.
+   * @returns {boolean} Siempre false; no sale de la casa aquí.
+   */
   function wanderPenGhost(state, ghost, containerKeys, occupied) {
     const options = [
       { col: ghost.col, row: ghost.row, action: ghost.dir },
@@ -581,6 +677,14 @@
     return false;
   }
 
+  /**
+   * Avanza un paso en la ruta de salida de la casa si la celda está libre.
+   * @param {Object} state - Estado con mapa y rutas.
+   * @param {Object} ghost - Fantasma que está saliendo.
+   * @param {Set<string>} containerKeys - Celdas del contenedor permitidas.
+   * @param {Set<string>} occupied - Celdas ocupadas por otros fantasmas en la casa.
+   * @returns {boolean} True si el fantasma ya está fuera de la casa.
+   */
   function stepPenExit(state, ghost, containerKeys, occupied) {
     if (!ghost.penExitPath || !ghost.penExitPath.length) {
       ghost.penExitPath = computePenExitPath(state, ghost);
@@ -605,6 +709,11 @@
     return outsideContainer && !atGate;
   }
 
+  /**
+   * Restaura el estado normal de un fantasma al salir de la casa y lo agrega a la lista activa.
+   * @param {Object} state - Estado global con lista de fantasmas activos.
+   * @param {Object} ghost - Fantasma que acaba de salir.
+   */
   function finalizeGhostExit(state, ghost) {
     ghost.leavingPen = false;
     ghost.penExitPath = null;
@@ -625,6 +734,12 @@
     }
   }
 
+  /**
+   * Calcula el camino más corto desde la celda actual del fantasma hacia el exterior de la casa o la puerta.
+   * @param {Object} state - Estado con mapa y puntos de spawn.
+   * @param {Object} ghost - Fantasma dentro de la casa.
+   * @returns {Array<{col:number,row:number}>} Camino paso a paso hasta salir; mínimo contiene la posición inicial.
+   */
   function computePenExitPath(state, ghost) {
     const outsideCandidates = [];
     const gateCandidates = [];
@@ -655,6 +770,10 @@
     return [start];
   }
 
+  /**
+   * Ajusta suavemente la velocidad del fantasma hacia la velocidad objetivo (normal o asustada).
+   * @param {Object} ghost - Fantasma a actualizar.
+   */
   function updateGhostSpeedTowardsTarget(ghost) {
     const cfg = C.FRIGHTENED || {};
     const accel = cfg.accel ?? 0.08;
@@ -666,6 +785,10 @@
     ghost.speedFactor = Math.max(0.3, Math.min(1, next));
   }
 
+  /**
+   * Alterna modos de fantasmas (scatter/chase) según el cronograma, si no hay power activo.
+   * @param {Object} state - Estado con timers e índice de modo.
+   */
   function updateGhostModes(state) {
     if (!Array.isArray(C.SCATTER_CHASE_SCHEDULE) || !C.SCATTER_CHASE_SCHEDULE.length) return;
     if (state.powerTimer > 0) return;
@@ -678,6 +801,12 @@
     }
   }
 
+  /**
+   * Busca un fantasma por color u originalColor.
+   * @param {Object} state - Estado con la lista de fantasmas.
+   * @param {string} color - Color a buscar.
+   * @returns {Object|null} Fantasma encontrado o null.
+   */
   function getGhostByColor(state, color) {
     for (let i = 0; i < state.ghosts.length; i += 1) {
       const g = state.ghosts[i];
@@ -686,6 +815,13 @@
     return null;
   }
 
+  /**
+   * Ajusta una coordenada a una celda walkable cercana si la original no lo es.
+   * @param {Object} state - Estado con mapa.
+   * @param {number} col - Columna deseada.
+   * @param {number} row - Fila deseada.
+   * @returns {{col:number,row:number}} Celda caminable más cercana.
+   */
   function clampToWalkable(state, col, row) {
     if (isWalkable(state.map, col, row, true)) return { col, row };
     const moves = getValidMoves(state.map, col, row, true);
@@ -693,6 +829,12 @@
     return { col, row };
   }
 
+  /**
+   * Calcula el objetivo de movimiento de un fantasma según su modo y color.
+   * @param {Object} state - Estado con Pac-Man y configuración de modos.
+   * @param {Object} ghost - Fantasma a evaluar.
+   * @returns {{col:number,row:number}} Objetivo al que se dirige.
+   */
   function computeGhostTarget(state, ghost) {
     const pac = state.pacman;
     if (isFrightenedState(ghost)) {
@@ -740,6 +882,13 @@
     return { col: pac.col, row: pac.row };
   }
 
+  /**
+   * Ejecuta A* con límites específicos por color para hallar una ruta hacia el objetivo.
+   * @param {Object} state - Estado con mapa y dimensiones.
+   * @param {Object} ghost - Fantasma en movimiento.
+   * @param {{col:number,row:number}} target - Coordenada objetivo.
+   * @returns {Array<{col:number,row:number}>|null} Ruta encontrada o null si se exceden límites.
+   */
   function findGhostPath(state, ghost, target) {
     if ((ghost.color === 'red')) {
       return findPathAStar(state, { col: ghost.col, row: ghost.row }, target, { maxExplored: Infinity, maxRadius: Infinity });
@@ -867,6 +1016,12 @@
     ghost.frightenedSpeedTarget = 1;
   }
 
+  /**
+   * Marca a un fantasma que llegó a casa para esperar respawn después de ser comido.
+   * @param {Object} state - Estado con el contador global de pasos.
+   * @param {Object} ghost - Fantasma que acaba de llegar a su casa.
+   * @param {Object} events - Contenedor de eventos de retorno.
+   */
   function startGhostRespawnWait(state, ghost, events) {
     ghost.returningToHome = false;
     ghost.waitingToRespawn = true;
@@ -876,6 +1031,11 @@
     if (events) events.ghostsReturned = (events.ghostsReturned || 0) + 1;
   }
 
+  /**
+   * Libera a un fantasma desde la casa tras completar su espera de respawn.
+   * @param {Object} state - Estado con modo global de fantasmas.
+   * @param {Object} ghost - Fantasma que volverá al tablero.
+   */
   function releaseGhostFromHome(state, ghost) {
     ghost.waitingToRespawn = false;
     ghost.returningToHome = false;
@@ -894,6 +1054,14 @@
     ghost.moveAccumulator = 0;
   }
 
+  /**
+   * Verifica si una celda es transitable para fantasmas u otros actores.
+   * @param {string[][]} map - Mapa de tiles.
+   * @param {number} col - Columna a evaluar.
+   * @param {number} row - Fila a evaluar.
+   * @param {boolean} allowGate - Permite atravesar la puerta de la casa de fantasmas.
+   * @returns {boolean} True si la celda es caminable.
+   */
   function isWalkable(map, col, row, allowGate) {
     const tile = getTile(map, col, row);
     if (tile === null) return false;
@@ -902,15 +1070,36 @@
     return true;
   }
 
+  /**
+   * Determina si una celda es transitable específicamente para Pac-Man (sin puertas).
+   * @param {string[][]} map - Mapa de tiles.
+   * @param {number} col - Columna.
+   * @param {number} row - Fila.
+   * @returns {boolean} True si Pac-Man puede caminar a la celda.
+   */
   function isWalkableForPacman(map, col, row) {
     return isWalkable(map, col, row, false);
   }
 
+  /**
+   * Obtiene el tile en coordenadas dadas, devolviendo null si está fuera del mapa.
+   * @param {string[][]} map - Mapa de tiles.
+   * @param {number} col - Columna.
+   * @param {number} row - Fila.
+   * @returns {string|null} Tile encontrado o null si está fuera de rango.
+   */
   function getTile(map, col, row) {
     if (row < 0 || row >= C.MAP_ROWS || col < 0 || col >= C.MAP_COLS) return null;
     return map[row][col];
   }
 
+  /**
+   * Asigna un valor a una celda del mapa si está dentro de los límites.
+   * @param {string[][]} map - Mapa de tiles mutable.
+   * @param {number} col - Columna destino.
+   * @param {number} row - Fila destino.
+   * @param {string} value - Nuevo valor del tile.
+   */
   function setTile(map, col, row, value) {
     if (!map || row < 0 || row >= C.MAP_ROWS || col < 0 || col >= C.MAP_COLS) return;
     if (!Array.isArray(map[row])) {
@@ -919,6 +1108,11 @@
     map[row][col] = value;
   }
 
+  /**
+   * Devuelve la dirección opuesta a la proporcionada.
+   * @param {string} action - Dirección original.
+   * @returns {string} Acción opuesta o `STAY` por defecto.
+   */
   function oppositeDirection(action) {
     switch (action) {
       case C.ACTIONS.UP: return C.ACTIONS.DOWN;
@@ -1010,6 +1204,12 @@
     return null;
   }
 
+  /**
+   * Reconstruye el camino desde el objetivo al inicio usando el mapa cameFrom.
+   * @param {Object} cameFrom - Mapa de predecesores por clave de celda.
+   * @param {string} currentKey - Clave de la celda objetivo.
+   * @returns {Array<{col:number,row:number}>} Ruta ordenada desde inicio hasta objetivo.
+   */
   function reconstructPath(cameFrom, currentKey) {
     const path = [currentKey];
     let cur = currentKey;
@@ -1023,6 +1223,12 @@
     });
   }
 
+  /**
+   * Obtiene la clave con menor fScore dentro del conjunto abierto.
+   * @param {Set<string>} open - Conjunto de claves abiertas.
+   * @param {Object} fScore - Mapa de fScores por celda.
+   * @returns {string|null} Clave con fScore mínimo o null.
+   */
   function lowestF(open, fScore) {
     let bestKey = null;
     let bestVal = Infinity;
@@ -1036,19 +1242,45 @@
     return bestKey;
   }
 
+  /**
+   * Convierte coordenadas de celda en una clave string única.
+   * @param {number} col - Columna.
+   * @param {number} row - Fila.
+   * @returns {string} Clave formateada "col,row".
+   */
   function key(col, row) {
     return `${col},${row}`;
   }
 
+  /**
+   * Calcula distancia Manhattan entre dos puntos del grid.
+   * @param {number} c1 - Columna punto 1.
+   * @param {number} r1 - Fila punto 1.
+   * @param {number} c2 - Columna punto 2.
+   * @param {number} r2 - Fila punto 2.
+   * @returns {number} Distancia Manhattan.
+   */
   function manhattan(c1, r1, c2, r2) {
     return Math.abs(c1 - c2) + Math.abs(r1 - r2);
   }
 
+  /**
+   * Devuelve un número aleatorio uniforme entre min y max.
+   * @param {number} min - Valor mínimo.
+   * @param {number} max - Valor máximo.
+   * @returns {number} Número aleatorio en el rango.
+   */
   function randBetween(min, max) {
     return min + Math.random() * (max - min);
   }
 
-  // Selecciona un movimiento de fantasma con sesgo creciente a perseguir a Pac-Man seg�n nivel.
+  /**
+   * Selecciona un movimiento de fantasma con sesgo creciente a perseguir a Pac-Man según el nivel.
+   * @param {Object} state - Estado con nivel y posición de Pac-Man.
+   * @param {Object} ghost - Fantasma que decide movimiento.
+   * @param {Array<{action:string,col:number,row:number}>} candidates - Movimientos posibles.
+   * @returns {{action:string,col:number,row:number}} Movimiento elegido.
+   */
   function pickGhostMove(state, ghost, candidates) {
     if (!candidates.length) return { ...ghost, action: C.ACTIONS.STAY };
     // Si est� asustado, mantiene movimiento aleatorio para facilitar comerlo.
@@ -1072,6 +1304,13 @@
     return candidates[Math.floor(Math.random() * candidates.length)];
   }
 
+  /**
+   * Elige un movimiento para un fantasma asustado priorizando alejarse de Pac-Man y evitar reversas.
+   * @param {Object} state - Estado con posición de Pac-Man.
+   * @param {Object} ghost - Fantasma asustado.
+   * @param {Array<{action:string,col:number,row:number}>} options - Movimientos disponibles.
+   * @returns {{action:string,col:number,row:number}|null} Movimiento elegido o null si no hay opciones.
+   */
   function chooseFrightenedMove(state, ghost, options) {
     if (!options.length) return null;
     const nonReverse = options.filter((opt) => opt.action !== oppositeDirection(ghost.dir));
@@ -1097,6 +1336,11 @@
     return pick;
   }
 
+  /**
+   * Devuelve una copia barajada de la lista dada.
+   * @param {Array} list - Lista a barajar.
+   * @returns {Array} Nueva lista con orden aleatorio.
+   */
   function shuffleList(list) {
     const arr = Array.isArray(list) ? list.slice() : [];
     for (let i = arr.length - 1; i > 0; i -= 1) {
@@ -1108,6 +1352,12 @@
     return arr;
   }
 
+  /**
+   * Selecciona un elemento de la lista ponderado por los pesos correspondientes.
+   * @param {Array} list - Opciones disponibles.
+   * @param {Array<number>} weights - Pesos positivos asociados a cada opción.
+   * @returns {*} Elemento escogido respetando la distribución de pesos.
+   */
   function weightedPick(list, weights) {
     const total = weights.reduce((a, b) => a + b, 0);
     let r = Math.random() * (total || 1);
@@ -1118,11 +1368,21 @@
     return list[list.length - 1];
   }
 
+  /**
+   * Clona superficialmente actores (fantasmas) preservando propiedades propias.
+   * @param {Array<Object>} list - Lista de actores.
+   * @returns {Array<Object>} Nueva lista con copias.
+   */
   function cloneActorsLocal(list) {
     const arr = Array.isArray(list) ? list : [];
     return arr.map((g) => ({ ...g }));
   }
 
+  /**
+   * Calcula la probabilidad de que un fantasma persiga activamente a Pac-Man según el nivel.
+   * @param {number} level - Nivel actual.
+   * @returns {number} Probabilidad entre 0 y 1.
+   */
   function ghostChaseProbability(level) {
     const base = C.DIFFICULTY?.ghostChaseBase ?? 0;
     const growth = C.DIFFICULTY?.ghostChaseGrowth ?? 0;
@@ -1131,6 +1391,12 @@
     return Math.min(max, Math.max(0, prob));
   }
 
+  /**
+   * Devuelve la acción cardinal necesaria para ir de una celda a su vecina.
+   * @param {{col:number,row:number}} from - Celda origen.
+   * @param {{col:number,row:number}} to - Celda destino.
+   * @returns {string|null} Acción en C.ACTIONS o null si no son vecinas ortogonales.
+   */
   function directionFromStep(from, to) {
     const dc = to.col - from.col;
     const dr = to.row - from.row;
@@ -1141,6 +1407,10 @@
     return null;
   }
 
+  /**
+   * Restaura el estado tras perder una vida, usando el snapshot del nivel para reubicar actores.
+   * @param {Object} state - Estado mutable del juego.
+   */
   function resetAfterLifeLost(state) {
     if (!state.levelSnapshot) {
       STATE.captureLevelSnapshot(state);
@@ -1231,15 +1501,11 @@
     invalidatePowerPathCache();
   }
 
-  function powerDurationForLevel(level) {
-    const base = C.DEFAULTS.powerDurationSteps;
-    const decay = C.DIFFICULTY?.powerDurationDecay ?? 1;
-    const min = C.DIFFICULTY?.minPowerDuration ?? 0;
-    const lvl = Math.max(1, level);
-    const duration = Math.round(base * Math.pow(decay, lvl - 1));
-    return Math.max(min, duration);
-  }
-
+  /**
+   * Calcula la duración del modo asustado en pasos según el nivel actual.
+   * @param {number} level - Nivel del juego.
+   * @returns {number} Cantidad de pasos que dura el power.
+   */
   function frightenedDurationForLevel(level) {
     const lvl = Math.max(1, level);
     const baseMinMs = C.TIMING?.frightenedDurationMinMs || 8000;
@@ -1253,6 +1519,11 @@
     return steps;
   }
 
+  /**
+   * Determina la velocidad objetivo de un fantasma en modo asustado para el nivel dado.
+   * @param {number} level - Nivel actual.
+   * @returns {number} Velocidad objetivo (factor de movimiento).
+   */
   function frightenedTargetSpeed(level) {
     const cfg = C.FRIGHTENED || {};
     const baseMin = cfg.speedMin ?? 0.6;
@@ -1265,16 +1536,34 @@
     return Math.max(0.5, Math.min(0.85, target));
   }
 
+  /**
+   * Evalúa si un fantasma es letal para Pac-Man (no asustado ni en regreso).
+   * @param {Object} state - Estado con temporizador de power.
+   * @param {Object} ghost - Fantasma a evaluar.
+   * @returns {boolean} True si puede matar a Pac-Man.
+   */
   function isGhostLethal(state, ghost) {
     if (ghost.eyeState || ghost.waitingToRespawn || ghost.returningToHome) return false;
     const frightenedActive = (state.powerTimer > 0) && (ghost.frightenedTimer > 0) && !ghost.eatenThisPower;
     return !frightenedActive;
   }
 
+  /**
+   * Indica si el fantasma está en algún estado de asustado.
+   * @param {Object} ghost - Fantasma evaluado.
+   * @returns {boolean} True si está en FRIGHTENED o FRIGHTENED_WARNING.
+   */
   function isFrightenedState(ghost) {
     return ghost.state === 'FRIGHTENED' || ghost.state === 'FRIGHTENED_WARNING';
   }
 
+  /**
+   * Verifica que un camino esté libre de fantasmas letales dentro de un radio dado.
+   * @param {Object} state - Estado con posiciones de fantasmas.
+   * @param {Array<{col:number,row:number}>} path - Camino propuesto.
+   * @param {number} radius - Distancia máxima permitida a un fantasma letal.
+   * @returns {boolean} True si todo el camino es seguro.
+   */
   function isPathSafeFromLethalGhosts(state, path, radius) {
     if (!Array.isArray(path) || path.length === 0) return false;
     const r = Math.max(0, radius || 0);
@@ -1291,6 +1580,11 @@
     return true;
   }
 
+  /**
+   * Devuelve la celda hogar (spawn) de un fantasma con fallback por defecto.
+   * @param {Object} ghost - Fantasma con posibles homeCol/homeRow.
+   * @returns {{col:number,row:number}} Coordenadas de casa.
+   */
   function getGhostHome(ghost) {
     const fallback = C.DEFAULTS?.ghostSpawns?.[0] || { col: ghost.col, row: ghost.row };
     return {
@@ -1299,6 +1593,12 @@
     };
   }
 
+  /**
+   * Calcula el siguiente paso desde la posición actual del fantasma hacia su casa.
+   * @param {Object} state - Estado con mapa y dimensiones.
+   * @param {Object} ghost - Fantasma regresando.
+   * @returns {{col:number,row:number}|null} Siguiente celda o null si ya está en casa o sin ruta.
+   */
   function nextStepToHome(state, ghost) {
     const home = getGhostHome(ghost);
     if (ghost.col === home.col && ghost.row === home.row) return null;

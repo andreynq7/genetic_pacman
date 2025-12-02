@@ -429,11 +429,6 @@
     return list;
   }
 
-  function getSpriteAudit() {
-    const sprites = collectSpriteObjects();
-    return sprites.map((s) => ({ src: s?.img?.src || s?.src || '', ready: !!s?.ready, error: !!s?.error }));
-  }
-
   function preloadSprites(timeoutMs = 5000) {
     const sprites = collectSpriteObjects();
     const readyCheck = () => sprites.every((s) => s?.ready || s?.img?.complete);

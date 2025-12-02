@@ -6,11 +6,21 @@
   const C = window.gameConstants;
   const T = C.TILE_TYPES;
 
+  /**
+   * Deeply clones a matrix-like level layout, ensuring each row is a mutable array of chars.
+   * @param {Array<string|string[]>} matrix - Level representation as strings or char arrays.
+   * @returns {string[][]} New matrix with independent row arrays.
+   */
   function cloneMatrix(matrix) {
     // Asegura que cada fila sea mutable (array de chars); convierte strings si llegan sin normalizar.
     return matrix.map((row) => (Array.isArray(row) ? row.slice() : String(row || '').split('')));
   }
 
+  /**
+   * Creates a shallow copy of a list of actor objects (ghosts or Pac-Man).
+   * @param {Array<Object>} list - Actors to clone.
+   * @returns {Array<Object>} New list with cloned actor entries.
+   */
   function cloneActors(list) {
     return list.map((g) => ({ ...g }));
   }
@@ -61,6 +71,11 @@
     return fallback.map((p) => ({ ...p }));
   }
 
+  /**
+   * Obtiene las celdas marcadas como contenedor de fantasmas.
+   * @param {string[][]} matrix - Mapa actual normalizado.
+   * @returns {Array<{col:number,row:number}>} Lista de celdas dentro del contenedor.
+   */
   function findGhostContainerCells(matrix) {
     const positions = [];
     for (let r = 0; r < matrix.length; r += 1) {
@@ -76,6 +91,7 @@
   /**
    * Cuenta pellets y power pellets existentes en el mapa.
    * @param {string[][]} matrix
+   * @returns {{pellets:number,power:number,total:number}} Totales detectados en el mapa.
    */
   function countPellets(matrix) {
     let pellets = 0;
@@ -97,6 +113,7 @@
    * @param {Array<{col:number,row:number}>} [options.ghostSpawns]
    * @param {number} [options.lives]
    * @param {number} [options.stepLimit]
+   * @returns {Object} Estado inicial listo para stepGame.
    */
   function createInitialState(options = {}) {
     const matrix = normalizeLevel(options.levelMap);
@@ -300,6 +317,11 @@
     };
   }
 
+  /**
+   * Captura un snapshot inmutable del nivel actual para restaurar tras perder vida.
+   * @param {Object} state - Estado de juego a fotografiar.
+   * @returns {Object} Snapshot guardado en state.levelSnapshot.
+   */
   function captureLevelSnapshot(state) {
     const snapPen = state.ghostPen ? cloneActors(state.ghostPen) : [];
     const penMap = new Map(snapPen.map((g) => [g.id, g]));
@@ -331,6 +353,12 @@
     return state.levelSnapshot;
   }
 
+  /**
+   * Restaura el estado jugable a partir del snapshot previamente capturado.
+   * No hace nada si no existe snapshot.
+   * @param {Object} state - Estado que se mutara con los valores del snapshot.
+   * @returns {void}
+   */
   function restoreLevelSnapshot(state) {
     if (!state.levelSnapshot) return;
     const snap = state.levelSnapshot;
@@ -378,3 +406,4 @@
     restoreLevelSnapshot
   };
 })();
+
