@@ -69,6 +69,11 @@
 
   let cachedCtx = null;
 
+  /**
+   * Inicializa el canvas del juego (tama�o, smoothing) y dibuja el nivel base.
+   * @param {HTMLCanvasElement|string|null} canvasOrRef - Canvas, id o null para usar refs de UI.
+   * @returns {CanvasRenderingContext2D|null} Contexto 2D inicializado o null si falta canvas.
+   */
   function initGameView(canvasOrRef) {
     const canvas = resolveCanvas(canvasOrRef);
     if (!canvas) return null;
@@ -90,6 +95,11 @@
     return ctx;
   }
 
+  /**
+   * Resuelve el canvas a partir de un id, elemento o referencia almacenada en la UI.
+   * @param {HTMLCanvasElement|string|null} canvasOrRef - Referencia flexible.
+   * @returns {HTMLCanvasElement|null} Canvas encontrado o null.
+   */
   function resolveCanvas(canvasOrRef) {
     if (!canvasOrRef && window.uiLayout) {
       const refs = uiLayout.getRefs();
@@ -101,18 +111,32 @@
     return canvasOrRef || null;
   }
 
+  /**
+   * Limpia todo el canvas con el color de fondo configurado.
+   * @param {CanvasRenderingContext2D} ctx - Contexto de dibujo.
+   */
   function clearBoard(ctx) {
     if (!ctx) return;
     ctx.fillStyle = COLORS.background;
     ctx.fillRect(0, 0, MAP_COLS * TILE_SIZE, MAP_ROWS * TILE_SIZE);
   }
 
+  /**
+   * Dibuja el nivel usando la matriz provista o el mapa por defecto.
+   * @param {CanvasRenderingContext2D} [ctx=cachedCtx] - Contexto opcional.
+   * @param {string[]|string[][]} [levelMatrix] - Mapa en forma de filas.
+   */
   function drawLevel(ctx = cachedCtx, levelMatrix) {
     if (!ctx) return;
     const matrix = levelMatrix || getLevelMap();
     drawLevelMatrix(ctx, matrix);
   }
 
+  /**
+   * Pinta cada tile del grid seg�n la matriz dada.
+   * @param {CanvasRenderingContext2D} ctx - Contexto de dibujo.
+   * @param {string[]|string[][]} matrix - Mapa del nivel.
+   */
   function drawLevelMatrix(ctx, matrix) {
     clearBoard(ctx);
     for (let row = 0; row < MAP_ROWS; row += 1) {
@@ -125,6 +149,13 @@
     }
   }
 
+  /**
+   * Renderiza un tile individual basado en su tipo.
+   * @param {CanvasRenderingContext2D} ctx - Contexto 2D.
+   * @param {number} col - Columna del tile.
+   * @param {number} row - Fila del tile.
+   * @param {string} tileType - Tipo definido en TILE_TYPES.
+   */
   function drawTile(ctx, col, row, tileType) {
     const { x, y } = gridToPixel(col, row);
     switch (tileType) {
@@ -157,6 +188,12 @@
     }
   }
 
+  /**
+   * Dibuja Pac-Man y fantasmas interpolando posiciones previas para suavidad.
+   * @param {CanvasRenderingContext2D} ctx - Contexto 2D.
+   * @param {Object} state - Estado de juego con actores y mapa.
+   * @param {number} [alpha=1] - Factor de interpolaci�n entre frames.
+   */
   function drawEntities(ctx, state, alpha = 1) {
     if (!state) return;
     const pac = state.pacman;
@@ -199,6 +236,12 @@
     }
   }
 
+  /**
+   * Redibuja el mapa y entidades para un frame dado.
+   * @param {CanvasRenderingContext2D} ctx - Contexto 2D.
+   * @param {Object} state - Estado actual del juego.
+   * @param {number} [alpha=1] - Interpolaci�n para animaci�n suave.
+   */
   function renderFrame(ctx, state, alpha = 1) {
     if (!ctx) return;
     if (state?.map) {
@@ -209,6 +252,14 @@
     drawEntities(ctx, state, alpha);
   }
 
+  /**
+   * Pinta un pellet o power pellet en la posici�n indicada.
+   * @param {CanvasRenderingContext2D} ctx - Contexto de dibujo.
+   * @param {number} x - Coordenada X superior izquierda en px.
+   * @param {number} y - Coordenada Y superior izquierda en px.
+   * @param {number} radius - Radio del pellet.
+   * @param {string} color - Color de relleno.
+   */
   function drawPellet(ctx, x, y, radius, color) {
     ctx.fillStyle = COLORS.background;
     ctx.fillRect(x, y, TILE_SIZE, TILE_SIZE);
@@ -218,21 +269,48 @@
     ctx.fill();
   }
 
+  /**
+   * Convierte coordenadas de grid a coordenadas en pixeles.
+   * @param {number} col - Columna.
+   * @param {number} row - Fila.
+   * @returns {{x:number,y:number}} Coordenadas en px.
+   */
   function gridToPixel(col, row) { return { x: col * TILE_SIZE, y: row * TILE_SIZE }; }
+  /** Centro del tile en pixeles. */
   function gridCenter(col, row) { const { x, y } = gridToPixel(col, row); return { x: x + TILE_SIZE / 2, y: y + TILE_SIZE / 2 }; }
+  /**
+   * Interpola posiciones previas y actuales para animaci�n suave.
+   * @param {number} prevCol - Columna previa.
+   * @param {number} prevRow - Fila previa.
+   * @param {number} col - Columna actual.
+   * @param {number} row - Fila actual.
+   * @param {number} alpha - Factor [0,1] de interpolaci�n.
+   * @returns {{x:number,y:number}} Posici�n interpolada en px.
+   */
   function gridToPixelLerped(prevCol, prevRow, col, row, alpha) {
     const lerp = (a, b, t) => a + (b - a) * t;
     const c = lerp(prevCol, col, Math.max(0, Math.min(1, alpha)));
     const r = lerp(prevRow, row, Math.max(0, Math.min(1, alpha)));
     return { x: c * TILE_SIZE, y: r * TILE_SIZE };
   }
+  /** Convierte coordenadas en px a coordenadas de grid. */
   function pixelToGrid(x, y) { return { col: Math.floor(x / TILE_SIZE), row: Math.floor(y / TILE_SIZE) }; }
+  /** Verifica si la celda est� dentro del mapa. */
   function isInsideGrid(col, row) { return col >= 0 && col < MAP_COLS && row >= 0 && row < MAP_ROWS; }
+  /** Obtiene el tile en la posici�n dada o null si est� fuera del mapa. */
   function getTile(col, row) { if (!isInsideGrid(col, row)) return null; const m = getLevelMap(); return m[row][col]; }
+  /** Devuelve true si la celda es muro. */
   function isWall(col, row) { return getTile(col, row) === TILE_TYPES.WALL; }
+  /** Indica si la celda es transitable (no muro). */
   function isWalkable(col, row) { const tile = getTile(col, row); if (!tile) return false; return tile !== TILE_TYPES.WALL; }
+  /** Indica si la celda corresponde a la puerta de la casa de fantasmas. */
   function isGhostGate(col, row) { return getTile(col, row) === TILE_TYPES.GHOST_GATE; }
 
+  /**
+   * Combina fantasmas activos y en espera evitando duplicados.
+   * @param {Object} state - Estado de juego.
+   * @returns {Array<Object>} Lista de fantasmas a renderizar.
+   */
   function collectRenderableGhosts(state) {
     const seen = new Set();
     const list = [];
@@ -267,6 +345,11 @@
     constants: { TILE_SIZE, MAP_COLS, MAP_ROWS, STEP_MS, TILE_TYPES }
   };
 
+  /**
+   * Crea un objeto de sprite con banderas de carga listas para usar en render.
+   * @param {string} src - Ruta relativa del recurso.
+   * @returns {{img:HTMLImageElement,ready:boolean,error:boolean,src:string}} Sprite.
+   */
   function loadImage(src) {
     const sprite = { img: new Image(), ready: false, error: false, src };
     sprite.img.onload = () => { sprite.ready = true; };
@@ -285,6 +368,12 @@
     };
   }
 
+  /**
+   * Selecciona el sprite de Pac-Man seg�n direcci�n y fase de animaci�n.
+   * @param {Object} pac - Datos de posici�n/direcci�n de Pac-Man.
+   * @param {number} stepCount - Paso actual para alternar cuadros.
+   * @returns {{img:HTMLImageElement,ready:boolean}|null} Sprite elegido.
+   */
   function getPacmanSprite(pac, stepCount) {
     const dir = pac?.dir || 'RIGHT';
     const phaseClosed = (stepCount % 6) >= 3;
@@ -340,6 +429,11 @@
     return list;
   }
 
+  /**
+   * Precarga sprites de Pac-Man y fantasmas esperando hasta timeout.
+   * @param {number} [timeoutMs=5000] - Tiempo m�ximo de espera.
+   * @returns {Promise<boolean>} True si todos cargaron a tiempo.
+   */
   function preloadSprites(timeoutMs = 5000) {
     const sprites = collectSpriteObjects();
     const readyCheck = () => sprites.every((s) => s?.ready || s?.img?.complete);
@@ -362,6 +456,13 @@
       || null;
   }
 
+  /**
+   * Devuelve el sprite adecuado para un fantasma seg�n estado, direcci�n y animaci�n.
+   * @param {Object} ghost - Estado del fantasma.
+   * @param {number} idx - �ndice del fantasma en la lista.
+   * @param {number} stepCount - Paso actual para alternar cuadros.
+   * @returns {{img:HTMLImageElement,ready:boolean}|null} Sprite seleccionado o fallback.
+   */
   function getGhostSprite(ghost, idx, stepCount) {
     const animPhase = ((stepCount || 0) % 12) < 6 ? 0 : 1;
     const frightened = (ghost.frightenedTimer || 0) > 0;
@@ -427,6 +528,14 @@
 
   function normalizeDirKey(dir) { if (dir === 'UP' || dir === 'DOWN' || dir === 'LEFT' || dir === 'RIGHT') return dir; return 'LEFT'; }
 
+  /**
+   * Dibuja las �unicas ojos� de un fantasma retornando a casa, con parpadeo.
+   * @param {CanvasRenderingContext2D} ctx - Contexto 2D.
+   * @param {Object} ghost - Estado del fantasma.
+   * @param {number} x - Posici�n X en px.
+   * @param {number} y - Posici�n Y en px.
+   * @param {number} stepCount - Paso actual para calcular parpadeo.
+   */
   function drawGhostEyes(ctx, ghost, x, y, stepCount) {
     const blinkDim = isEyesBlinkDimmed(ghost, stepCount);
     const sprite = getEyesSprite(ghost);
@@ -454,6 +563,12 @@
     ctx.fill();
   }
 
+  /**
+   * Determina si los ojos deben renderizarse atenuados seg�n el temporizador de parpadeo.
+   * @param {Object} ghost - Fantasma en modo ojos.
+   * @param {number} stepCount - Paso actual.
+   * @returns {boolean} True si debe atenuarse.
+   */
   function isEyesBlinkDimmed(ghost, stepCount) {
     const c = window.gameConstants || {};
     const blinkSteps = c.GHOST_BLINK_STEPS || Math.max(1, Math.round(((c.TIMING?.ghostBlinkMs) || 250) / ((c.TIMING?.stepDurationMs) || STEP_MS)));

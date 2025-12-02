@@ -7,6 +7,11 @@
     demo: 'status-demo'
   };
 
+  /**
+   * Actualiza el badge de estado superior (Idle/Training/etc).
+   * @param {string} text - Texto a mostrar.
+   * @param {'idle'|'training'|'paused'|'demo'} state - Estado para mapear clases CSS.
+   */
   function updateStatusBadge(text, state) {
     const refs = uiLayout.getRefs();
     const badge = refs.statusBadge;
@@ -27,6 +32,11 @@
    * @param {Object} refs
    * @param {Object} metrics { bestFitness, averageFitness, generation, totalTime, averageTime }
    */
+  /**
+   * Refresca las tarjetas num�ricas de m�tricas principales.
+   * @param {Object} refs - Referencias de UI.
+   * @param {Object} metrics - Valores a mostrar (bestFitness, averageFitness, generation, totalTime, averageTime, workersActive, chunkSizeUsed).
+   */
   function updateTrainingMetrics(refs, metrics) {
     if (!refs || !metrics) return;
     updateMetricValue(refs.metrics.best, metrics.bestFitness ?? '--');
@@ -40,6 +50,11 @@
     updateMetricValue(refs.metrics.chunkSizeUsedDup, metrics.chunkSizeUsed ?? refs.metrics.chunkSizeUsedDup?.textContent ?? '--');
   }
 
+  /**
+   * Alias ligero para actualizar solo m�tricas principales.
+   * @param {Object} refs - Referencias de UI.
+   * @param {Object} metrics - Valores de fitness y tiempos.
+   */
   function updateMetrics(refs, metrics) {
     if (!refs || !metrics) return;
     updateMetricValue(refs.metrics.best, metrics.bestFitness ?? '--');
@@ -49,6 +64,10 @@
     updateMetricValue(refs.metrics.generation, metrics.generation ?? '--');
   }
 
+  /**
+   * Dibuja un placeholder estilizado en el canvas de m�tricas cuando no hay datos.
+   * @param {Object} refs - Referencias de UI.
+   */
   function renderPlaceholderGraph(refs) {
     if (!refs?.game?.metricsCanvas) return;
     const canvas = refs.game.metricsCanvas;
@@ -98,6 +117,12 @@
    * @param {Object} refs
    * @param {number[]} bestSeries
    * @param {number[]} avgSeries
+   */
+  /**
+   * Dibuja la gr�fica de evoluci�n de fitness (best y avg por generaci�n).
+   * @param {Object} refs - Referencias de UI.
+   * @param {number[]} [bestSeries] - Serie de mejores valores por generaci�n.
+   * @param {number[]} [avgSeries] - Serie de promedios por generaci�n.
    */
   function renderFitnessGraph(refs, bestSeries = [], avgSeries = []) {
     if (!refs?.game?.metricsCanvas) return;
@@ -167,6 +192,12 @@
     return NaN;
   }
 
+  /**
+   * Renderiza un comparativo simple de tiempo total con y sin workers.
+   * @param {Object} refs - Referencias de UI (usa `refs.workers.comparison.canvas`).
+   * @param {Object|null} onData - Resumen con workers.
+   * @param {Object|null} offData - Resumen sin workers.
+   */
   function renderComparisonGraph(refs, onData, offData) {
     const canvas = refs?.workers?.comparison?.canvas;
     if (!canvas) return;

@@ -29,6 +29,10 @@
     }
   };
 
+  /**
+   * Inicializa el SVG y los manejadores de eventos del gr�fico poblacional.
+   * @returns {boolean|null} True si se encontr� el contenedor, null en caso contrario.
+   */
   function init() {
     state.svg = document.getElementById('population-chart');
     state.tooltip = document.getElementById('population-tooltip');
@@ -88,12 +92,20 @@
     state.resizeObs.observe(state.container);
   }
 
+  /**
+   * Sobrescribe el dataset de snapshots y re-renderiza el gr�fico.
+   * @param {Array<Object>} entries - Lista de snapshots de poblaci�n por generaci�n.
+   */
   function setData(entries = []) {
     state.data = normalizeData(entries);
     syncRangeInputs();
     render();
   }
 
+  /**
+   * Inserta o reemplaza un snapshot individual y actualiza la visualizaci�n.
+   * @param {{generation:number}} snapshot - Registro de poblaci�n para una generaci�n.
+   */
   function addSnapshot(snapshot) {
     if (!snapshot || snapshot.generation == null) return;
     const next = [...state.data];
@@ -170,6 +182,10 @@
     state.svg.appendChild(text);
   }
 
+  /**
+   * Recalcula escalas y vuelve a dibujar el gr�fico seg�n el rango activo.
+   * @returns {void}
+   */
   function render() {
     if (!state.svg) return;
     if (!state.data.length) {

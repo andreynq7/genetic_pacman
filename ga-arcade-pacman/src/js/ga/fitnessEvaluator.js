@@ -220,6 +220,12 @@
     evaluateChromosome
   };
 })();
+  /**
+   * Calcula el retorno descontado dado un historial de recompensas.
+   * @param {Array<{reward:number}>} history - Secuencia de recompensas.
+   * @param {number} gamma - Factor de descuento [0,1].
+   * @returns {number} Retorno acumulado.
+   */
   function discountedReturn(history, gamma) {
     const g = Math.max(0, Math.min(1, Number(gamma) || 0));
     let G = 0;

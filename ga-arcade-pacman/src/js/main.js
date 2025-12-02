@@ -1,4 +1,4 @@
-﻿// Entry point to bootstrap UI wiring + GA orchestration + demo del mejor individuo.
+// Entry point to bootstrap UI wiring + GA orchestration + demo del mejor individuo.
 (function() {
   let refs = null;
   let ctx = null;
@@ -16,12 +16,21 @@
   let fpsMeasure = { last: 0, frames: 0, fps: 0 };
   let lifeLossInProgress = false;
 
+  /**
+   * Combina configuraci�n de la app (o fallback) para inicializar el formulario de par�metros.
+   * @returns {Object} Valores num�ricos por defecto para el GA.
+   */
   function getUiDefaults() {
     const ga = (window.appConfig && window.appConfig.ga) || (window.defaultConfig || {});
     const fit = (window.appConfig && window.appConfig.fitness) || {};
     return { ...ga, episodesPerIndividual: fit.episodesPerIndividual ?? ga.episodesPerIndividual };
   }
 
+  /**
+   * Carga configuraciones, vincula la UI y lanza la precarga inicial de sprites/audio.
+   * Se ejecuta cuando el DOM est� listo.
+   * @returns {Promise<void>}
+   */
   async function initApp() {
     try { if (window.configLoader && window.configLoader.load) await window.configLoader.load(); } catch (_) {}
     refs = uiLayout.getRefs();
@@ -70,6 +79,9 @@
 
 
 
+  /**
+   * Inicializa canvas, estado de juego y overlay de FPS antes de renderizar.
+   */
   function setupGame() {
     ctx = gameView.initGameView(refs.game?.canvas || 'game-canvas');
     currentState = gameState.createInitialState();
@@ -77,6 +89,10 @@
     render();
   }
 
+  /**
+   * Renderiza el frame actual y sincroniza el HUD.
+   * @param {number} [alpha=1] - Factor de interpolaci�n usado por el render loop.
+   */
   function render(alpha = 1) {
     if (ctx && currentState) {
       gameView.renderFrame(ctx, currentState, alpha);
@@ -84,6 +100,9 @@
     syncHud();
   }
 
+  /**
+   * Actualiza los contadores visibles (score, nivel, vidas) seg�n el estado presente.
+   */
   function syncHud() {
     if (!refs?.game?.statusBar || !currentState) return;
     domHelpers.setText(refs.game.statusBar.score, currentState.score);
@@ -93,6 +112,10 @@
   }
 
   // ----------------- GA control -----------------
+  /**
+   * Lee configuraci�n de la UI y arranca el loop del GA desde cero.
+   * Detiene cualquier demo activa y reinicia las m�tricas visuales.
+   */
   function handleStartTraining() {
     if (!uiForms.validateParametersForm(refs)) return;
     stopDemo();
@@ -103,6 +126,9 @@
     gaController.start(onGenerationUpdate, onTrainingFinished, onTrainingProgress);
   }
 
+  /**
+   * Alterna entre pausa y reanudaci�n; tambi�n pausa la demo si est� corriendo.
+   */
   function handlePauseResume() {
     const status = gaController.getStatus();
     if (status.status === 'running') {
@@ -116,6 +142,9 @@
     }
   }
 
+  /**
+   * A�ade generaciones al objetivo actual, arrancando el entrenamiento si estaba idle.
+   */
   function handleExtendTraining() {
     if (!uiForms.validateParametersForm(refs)) return;
     stopDemo();
@@ -139,6 +168,9 @@
     }
   }
 
+  /**
+   * Detiene demo/GA, limpia UI y reestablece el juego a estado inicial.
+   */
   function handleReset() {
     stopDemo();
     hideGameOverModal();
@@ -158,6 +190,10 @@
     setupGame();
   }
 
+  /**
+   * Callback por generaci�n para refrescar tarjetas, gr�ficos y snapshot de poblaci�n.
+   * @param {Object} info - Resumen devuelto por gaController.
+   */
   function onGenerationUpdate(info) {
     uiMetrics.updateStatusBadge('Entrenando', 'training');
     const best = formatNumber(info.bestFitness);
@@ -188,6 +224,10 @@
     }
   }
 
+  /**
+   * Callback de finalizaci�n del GA: actualiza badges, gr�ficos y datos de comparaci�n.
+   * @param {Object} summary - Resumen con historial y tiempos totales.
+   */
   function onTrainingFinished(summary) {
     uiMetrics.updateStatusBadge('Terminado', 'training');
     if (summary?.history) {
@@ -207,6 +247,10 @@
     updateComparisonUI();
   }
 
+  /**
+   * Callback de progreso (ej. evaluaci�n en curso) para informar al HUD.
+   * @param {Object} progress - Estado parcial entregado por gaController.
+   */
   function onTrainingProgress(progress) {
     if (!progress) return;
     if (progress.stage === 'evaluation') {
@@ -214,6 +258,9 @@
     }
   }
 
+  /**
+   * Pinta la secci�n de comparaci�n on/off workers cuando existen datos de ambos modos.
+   */
   function updateComparisonUI() {
     const r = refs.workers?.comparison;
     if (!r) return;
@@ -233,6 +280,9 @@
   }
 
   // ----------------- Demo del mejor individuo -----------------
+  /**
+   * Construye la pol�tica del mejor cromosoma y arranca una demo con cuenta regresiva.
+   */
   function handleDemoBest() {
     stopDemo();
     hideGameOverModal();
@@ -253,11 +303,13 @@
     startDemoWithCountdown();
   }
 
+  /** Pausa la demo actual y actualiza el badge de estado. */
   function pauseDemoLoop() {
     stopDemo();
     uiMetrics.updateStatusBadge('Pausado', 'paused');
   }
 
+  /** Detiene el loop de demo y resetea recursos de audio/render. */
   function stopDemo() {
     demoRunning = false;
     if (demoTimer) {
@@ -274,6 +326,9 @@
   }
 
   // Permite salir del overlay de Game Over y reiniciar el juego para seguir probando.
+  /**
+   * Sale del overlay de Game Over y reinicia el juego listo para nuevas pruebas.
+   */
   function resetAfterGameOver() {
     stopDemo();
     hideGameOverModal();
@@ -291,6 +346,7 @@
     const best = gaController.getBestInfo();
     if (!best || !best.chromosome) {
       console.warn('No hay mejor individuo todavía. Entrene el GA primero.');
+      if (window.logger) window.logger.warn('export_best_missing', { reason: 'no_best_info' });
       return;
     }
     const config = {
@@ -305,7 +361,13 @@
       timestamp: new Date().toISOString()
     };
     const filename = `best_${formatTimestampForFile()}.json`;
-    downloadJson(payload, filename);
+    try {
+      downloadJson(payload, filename);
+      if (window.logger) window.logger.info('export_best_ok', { filename, fitness: best.fitness, generation: best.generation });
+    } catch (err) {
+      console.error('Export Best fallo', err);
+      if (window.logger) window.logger.error('export_best_fail', { message: err && err.message ? err.message : String(err) });
+    }
   }
 
   /**
@@ -340,6 +402,11 @@
     downloadJson(logsExport, `logs_run_${ts}.json`);
   }
 
+  /**
+   * Descarga un archivo de texto plano generado en memoria.
+   * @param {string} text - Contenido a serializar.
+   * @param {string} filename - Nombre sugerido de archivo.
+   */
   function downloadText(text, filename) {
     const blob = new Blob([text], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -359,24 +426,45 @@
     return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
   }
 
+  /**
+   * Exporta el hist�rico de fitness a un archivo JSONL (una l�nea por generaci�n).
+   */
   function handleExportFitness() {
     const hist = gaController.getHistory();
     const bestIndividuals = hist?.bestIndividuals || [];
-    const lines = [];
-    for (let i = 0; i < (hist?.bestFitness?.length || 0); i += 1) {
-      const entry = {
-        generation: i + 1,
-        bestFitness: hist.bestFitness[i],
-        avgFitness: hist.avgFitness?.[i] ?? null,
-        bestIndividual: bestIndividuals?.[i] ?? null
-      };
-      lines.push(JSON.stringify(entry));
+    const count = (hist?.bestFitness?.length || 0);
+    if (!count) {
+      console.warn('No hay datos de entrenamiento todavía.');
+      if (window.logger) window.logger.warn('export_fitness_missing', { reason: 'no_history' });
+      return;
     }
-    const ts = formatTimestampForFile();
-    downloadText(lines.join('\n'), `fitness_history_${ts}.jsonl`);
+    try {
+      const lines = [];
+      for (let i = 0; i < count; i += 1) {
+        const entry = {
+          generation: i + 1,
+          bestFitness: hist.bestFitness[i],
+          avgFitness: hist.avgFitness?.[i] ?? null,
+          bestIndividual: bestIndividuals?.[i] ?? null
+        };
+        lines.push(JSON.stringify(entry));
+      }
+      const ts = formatTimestampForFile();
+      const filename = `fitness_history_${ts}.jsonl`;
+      downloadText(lines.join('\n'), filename);
+      if (window.logger) window.logger.info('export_fitness_ok', { filename, generations: count });
+    } catch (err) {
+      console.error('Export Fitness fallo', err);
+      if (window.logger) window.logger.error('export_fitness_fail', { message: err && err.message ? err.message : String(err) });
+    }
   }
 
   // ----------------- Simulación de juego y entrada -----------------
+  /**
+   * Avanza un paso de juego en modo demo aplicando la acci�n elegida.
+   * Maneja transiciones de nivel, p�rdidas de vida y estados de finalizaci�n.
+   * @param {string} action - Acci�n propuesta por la pol�tica demo.
+   */
   function stepDemo(action) {
     if (!demoRunning) return;
     if (!currentState) return;
@@ -413,6 +501,10 @@
     }
   }
 
+  /**
+   * Bucle de render principal para la demo, integrando simulaci�n y dibujado.
+   * @param {number} timestamp - Timestamp de requestAnimationFrame.
+   */
   function renderLoop(timestamp) {
     if (!demoRunning) return;
     if (lastTimestamp == null) lastTimestamp = timestamp;
@@ -432,6 +524,7 @@
     }
   }
 
+  /** Reinicia contadores y arranca el loop de render de la demo. */
   function startRenderLoop() {
     demoRunning = true;
     lastTimestamp = null;
@@ -440,6 +533,10 @@
     renderLoopHandle = requestAnimationFrame(renderLoop);
   }
 
+  /**
+   * Ejecuta la cuenta regresiva, arranca m�sica y pone en marcha la demo.
+   * @returns {Promise<void>}
+   */
   async function startDemoWithCountdown() {
     cancelRenderLoop();
     demoRunning = false;
@@ -455,6 +552,10 @@
     startRenderLoop();
   }
 
+  /**
+   * Reproduce la animaci�n/sonido de muerte y espera al respawn seguro.
+   * @returns {Promise<void>}
+   */
   async function runLifeLostFlow() {
     if (lifeLossInProgress) return;
     lifeLossInProgress = true;
@@ -501,6 +602,11 @@
     lifeLossInProgress = false;
   }
 
+  /**
+   * Gestiona el cambio de nivel tras limpiar el mapa, incluyendo cuenta regresiva.
+   * @param {Object} nextState - Estado inicial del siguiente nivel.
+   * @returns {Promise<void>}
+   */
   async function beginLevelTransition(nextState) {
     cancelRenderLoop();
     demoRunning = false;
@@ -518,6 +624,7 @@
     startRenderLoop();
   }
 
+  /** Cancela el requestAnimationFrame en curso si existe. */
   function cancelRenderLoop() {
     if (renderLoopHandle) {
       cancelAnimationFrame(renderLoopHandle);
@@ -527,11 +634,20 @@
 
 
 
+  /**
+   * Formatea n�meros para mostrarlos en el HUD, devolviendo '--' si no son v�lidos.
+   * @param {number} val - Valor a mostrar.
+   * @returns {string} Texto formateado.
+   */
   function formatNumber(val) {
     if (val == null || Number.isNaN(val)) return '--';
     return Number(val).toFixed(2);
   }
 
+  /**
+   * Muestra un overlay de cuenta regresiva (Ready, 3-2-1) antes de iniciar acci�n.
+   * @returns {Promise<void>}
+   */
   async function runCountdownSequence() {
     const overlay = ensureCountdownOverlay();
     updateCountdownOverlay('READY');
@@ -543,6 +659,10 @@
     removeCountdownOverlay();
   }
 
+  /**
+   * Crea (o reutiliza) el overlay semitransparente usado para la cuenta regresiva.
+   * @returns {HTMLElement} Nodo overlay.
+   */
   function ensureCountdownOverlay() {
     let overlay = document.getElementById('countdown-overlay');
     if (!overlay) {
@@ -570,6 +690,10 @@
     return overlay;
   }
 
+  /**
+   * Crea un peque�o overlay con la medici�n de FPS y lo ancla sobre el canvas.
+   * @returns {HTMLElement} Elemento overlay.
+   */
   function ensureFpsOverlay() {
     let el = document.getElementById('fps-overlay');
     if (!el) {
@@ -598,6 +722,10 @@
     return el;
   }
 
+  /**
+   * Calcula FPS medio en ventanas de 500 ms y actualiza el overlay.
+   * @param {number} ts - Timestamp de requestAnimationFrame.
+   */
   function updateFps(ts) {
     if (!fpsOverlayEl) return;
     if (!fpsMeasure.last) fpsMeasure.last = ts;
@@ -611,6 +739,10 @@
     }
   }
 
+  /**
+   * Crea/reutiliza el overlay rojo de muerte.
+   * @returns {HTMLElement} Elemento overlay.
+   */
   function ensureDeathOverlay() {
     let overlay = document.getElementById('death-overlay');
     if (!overlay) {
@@ -637,21 +769,31 @@
     return overlay;
   }
 
+  /**
+   * Cambia el texto mostrado en el overlay de muerte.
+   * @param {string} text - Mensaje a mostrar.
+   */
   function updateDeathOverlay(text) {
     const overlay = ensureDeathOverlay();
     overlay.textContent = text;
   }
 
+  /** Elimina el overlay de muerte si existe. */
   function removeDeathOverlay() {
     const existing = document.getElementById('death-overlay');
     if (existing) existing.remove();
   }
 
+  /**
+   * Actualiza el texto del overlay de cuenta regresiva.
+   * @param {string} text - Texto a mostrar.
+   */
   function updateCountdownOverlay(text) {
     const overlay = ensureCountdownOverlay();
     overlay.textContent = text;
   }
 
+  /** Remueve el overlay de cuenta regresiva si est� presente. */
   function removeCountdownOverlay() {
     const existing = document.getElementById('countdown-overlay');
     if (existing) existing.remove();
@@ -682,6 +824,9 @@
   }
 
   // ----------------- Game Over Modal -----------------
+  /**
+   * Crea un overlay modal de Game Over con opciones de export y reinicio.
+   */
   function showGameOverModal() {
     hideGameOverModal();
     const overlay = document.createElement('div');
@@ -729,6 +874,7 @@
     document.body.appendChild(overlay);
   }
 
+  /** Elimina el overlay de Game Over si existe. */
   function hideGameOverModal() {
     const existing = document.getElementById('game-over-overlay');
     if (existing) existing.remove();
@@ -737,6 +883,9 @@
   document.addEventListener('DOMContentLoaded', initApp);
 
   // Exponer helpers para pruebas manuales desde consola.
+  /**
+   * API ligera expuesta en window para pruebas manuales desde consola.
+   */
   window.gameSession = {
     getState: () => currentState,
     startDemoLoop: handleDemoBest,

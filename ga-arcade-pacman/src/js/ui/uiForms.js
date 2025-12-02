@@ -1,5 +1,10 @@
 // Basic form handling for parameter inputs.
 (function() {
+  /**
+   * Pinta valores por defecto en los inputs del formulario de par�metros.
+   * @param {Object} refs - Referencias devueltas por `uiLayout.getRefs()`.
+   * @param {Object} config - Configuraci�n por defecto a usar como fallback.
+   */
   function applyDefaults(refs, config) {
     if (!refs || !refs.inputs || !config) return;
     if (refs.inputs.population) refs.inputs.population.value = config.populationSize ?? '';
@@ -42,6 +47,12 @@
     };
   }
 
+  /**
+   * Valida que los porcentajes de selecci�n/cruce/mutaci�n sumen ~100%.
+   * Muestra u oculta el mensaje de error en la UI.
+   * @param {Object} refs - Referencias de formulario.
+   * @returns {boolean} True si la suma es v�lida.
+   */
   function validateParametersForm(refs) {
     if (!refs || !refs.inputs) return true;
     const selection = Number(refs.inputs.selection.value) || 0;
@@ -63,6 +74,11 @@
     return isValid;
   }
 
+  /**
+   * Enlaza validaci�n en vivo y prevenci�n de submit al formulario de par�metros.
+   * @param {Object} refs - Referencias de la UI.
+   * @returns {void}
+   */
   function bindFormValidation(refs) {
     if (!refs || !refs.inputs) return;
     const percentInputs = [refs.inputs.selection, refs.inputs.crossover, refs.inputs.mutation];

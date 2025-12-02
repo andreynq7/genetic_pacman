@@ -28,6 +28,11 @@
 
   const FITNESS = ctx.fitnessEvaluator;
 
+  /**
+   * Punto de entrada para mensajes entrantes desde el hilo principal.
+   * Soporta INIT para handshake y EVALUATE_CHUNK para evaluar cromosomas.
+   * @param {MessageEvent} event - Mensaje recibido.
+   */
   ctx.onmessage = function onMessage(event) {
     const { data } = event || {};
     const type = data?.type;
@@ -47,6 +52,11 @@
     }
   };
 
+  /**
+   * Eval�a una tanda de cromosomas y responde al hilo principal con los resultados.
+   * @param {string} id - Identificador de la solicitud.
+   * @param {{items:Array, generation:number, chunkId:number}} payload - Datos de evaluaci�n.
+   */
   function handleEvaluateChunk(id, payload) {
     if (!FITNESS) {
       postError(id, 'gaWorker: fitnessEvaluator no disponible');
@@ -90,6 +100,12 @@
     });
   }
 
+  /**
+   * Mezcla configuraci�n de fitness con un desplazamiento de generaci�n por chunk.
+   * @param {Object} base - Configuraci�n base recibida.
+   * @param {number} generation - Generaci�n actual.
+   * @returns {Object} Configuraci�n lista para evaluar.
+   */
   function mergeFitnessConfig(base, generation) {
     return {
       ...base,
@@ -101,10 +117,19 @@
     return (ctx.performance && ctx.performance.now) ? ctx.performance.now() : Date.now();
   }
 
+  /**
+   * Env�a un mensaje de error seguro al hilo principal.
+   * @param {string|null} id - Identificador de la tarea relacionada.
+   * @param {string} message - Descripci�n del error.
+   */
   function postError(id, message) {
     postMessageSafe({ type: MSG.ERROR, id, payload: { message } });
   }
 
+  /**
+   * Env�a un mensaje atrapando errores para no matar el worker.
+   * @param {Object} msg - Payload a emitir.
+   */
   function postMessageSafe(msg) {
     try {
       ctx.postMessage(msg);

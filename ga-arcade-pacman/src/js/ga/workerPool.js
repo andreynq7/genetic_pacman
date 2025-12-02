@@ -14,6 +14,12 @@
     LOG: 'ga-worker/log'
   };
 
+  /**
+   * Crea un pool ligero de Web Workers para evaluar cromosomas en paralelo.
+   * Devuelve null si la API de Worker no est� disponible.
+   * @param {{scriptUrl?:string,size?:number,chunkSize?:number}} [options] - Opciones de inicializaci�n.
+   * @returns {{evaluateChromosomes:Function,terminate:Function,size:number}|null} Pool listo para usar.
+   */
   function createWorkerPool(options = {}) {
     if (typeof Worker === 'undefined') {
       console.warn('gaWorkerPool: Worker API no disponible; fallback a ejecuci�n sin pool.');
@@ -104,6 +110,12 @@
       });
     }
 
+    /**
+     * Distribuye cromosomas entre los workers y devuelve sus fitness agregados.
+     * @param {Array} items - Lista de { index, chromosome, fitnessConfig }.
+     * @param {{generation?:number,chunkSize?:number}} [opts] - Ajustes de ejecuci�n.
+     * @returns {Promise<Array<{index:number,fitness:number,evalStats:Object}>>}
+     */
     async function evaluateChromosomes(items, opts = {}) {
       if (!items || !items.length) return [];
       const chunkSize = Math.max(1, opts.chunkSize || defaultChunk);

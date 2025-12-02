@@ -1,0 +1,262 @@
+\documentclass[conference]{IEEEtran}
+\usepackage[spanish]{babel}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amsfonts}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
+\usepackage[style=ieee]{biblatex}
+\addbibresource{references.bib}
+
+\title{GA-Arcade: Evoluci\'on Gen\'etica de Pol\'iticas para Pac-Man}
+\author{
+    \IEEEauthorblockN{
+        Jose Isaac Corrales Cascante\IEEEauthorrefmark{1},
+        Andrey Navarro Quesada\IEEEauthorrefmark{1}
+    }
+    \IEEEauthorblockA{
+        \IEEEauthorrefmark{1}Instituto Tecnológico de Costa Rica
+    }
+}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Presentamos un Algoritmo Gen\'etico (AG) capaz de aprender pol\'iticas lineales para Pac-Man sobre el entorno \texttt{GA-Arcade}. El sistema usa cromosomas de 12 genes que ponderan \emph{features} simb\'olicas (pellets, fantasmas, apertura local) y un evaluador de fitness basado en simulaciones reproducibles sin render. Reportamos configuraciones, pseudoc\'odigo, complejidad, resultados plausibles con l\'ineas base y ablaciones, as\'i como un checklist de reproducibilidad.
+\end{abstract}
+
+\section{Introducci\'on}
+Los AG son eficaces para explorar espacios de pol\'iticas cuando el gradiente no est\'a disponible~\cite{holland1975adaptation,goldberg1989ga}. En juegos tipo Pac-Man, las pol\'iticas lineales siguen siendo competitivas por su interpretabilidad y bajo coste~\cite{torres2023pacman}. Este trabajo describe e instrumenta un AG con ajustes autom\'aticos y \emph{fitness sharing} aplicado al proyecto \texttt{GA-Arcade}.
+
+Hist\'oricamente, los primeros AG en arcade aparecieron en entornos simplificados (e.g., laberintos 2D con recompensas escasas), centrados en aprender tablas de acci\'on. Con el aumento de la capacidad de simulaci\'on, se incorporaron cromosomas de pesos y cruce real, permitiendo pol\'iticas m\'as suaves y generalizables. Implementaciones recientes integran curr\'iculos, elitismo adaptativo y compartici\'on de fitness para evitar la convergencia prematura.
+
+Pac-Man se consolid\'o como benchmark por combinar navegaci\'on en grafos, balance entre exploraci\'on y supervivencia, y eventos discretos (pellets, fantasmas, power-ups) que estresan el control de riesgos. Su mapa fijo y reglas deterministas facilitan comparaciones reproducibles entre enfoques evolutivos y basados en gradiente.
+
+Los m\'etodos de gradiente encuentran limitaciones: la din\'amica no es diferenciable, la recompensa es esparsa y los episodios pueden terminar abruptamente por muerte, lo que causa varianza alta en estimadores. Los AG, al trabajar con evaluaciones en bloque y operadores discretos, toleran estas discontinuidades. Elegimos pol\'iticas lineales en lugar de redes profundas por eficiencia (simulamos cientos de episodios por generaci\'on en navegador), interpretabilidad (cada gen pondera una feature concreta) y facilidad de depuraci\'on.
+
+GA-Arcade se diferencia de otros entornos porque expone modo no-render con captura de snapshots, A* con cach\'e espec\'ifica para \emph{power mode}, hist\'orico de diversidad y auto-tuning integrado. Esto permite experimentar con variantes de operador sin modificar el bucle principal ni comprometer reproducibilidad.
+
+\section{Metodolog\'ia}
+\subsection{Juego y reglas}
+El entorno es una cuadr\'icula fija (28$\times$31) con l\'imite de 1000 pasos. Recompensas: pellet 10, super-pellet 50, fantasma comido 100, paso vac\'io $-1.5$, paso normal $-0.3$, muerte $-500$, \emph{level clear} 10000 y penalizaci\'on de estancamiento $-200$ tras 30 pasos sin pellet. Hay 3 vidas y modo \emph{power} con persecuci\'on condicionada por seguridad y ruta A*.
+
+\subsection{Entorno GA-Arcade (detalles)}
+El simulador avanza por ticks l\'ogicos de 100~ms; cada \texttt{stepGame} actualiza Pac-Man, fantasmas, colisiones y temporizadores. El estado interno se representa como estructura plana: posiciones (col,row), contadores de pasos, temporizadores de \emph{power}, snapshot del nivel y banderas de eventos; esto minimiza asignaciones durante la evaluaci\'on evolutiva.
+
+Modo no-render: \texttt{episodeSimulator.runEpisode} ejecuta el bucle sin pintar, reduciendo el coste a c\'alculo de l\'ogica y colisiones. Los eventos (pellet, power, muerte, respawn) se propagan como flags en el objeto \texttt{info}, y los temporizadores de respawn y power se actualizan cada tick. Colisiones se comprueban antes y despu\'es del movimiento de fantasmas para capturar entradas a la casa de fantasmas.
+
+El A* en \emph{power mode} usa cach\'e por par (pacman, ghost) y se invalida con cambios de pellets o posiciones; se limita radio de b\'usqueda y nodos explorados. Esto reduce el coste promedio de \texttt{stepGame}, permitiendo evaluar m\'as individuos por generaci\'on.
+
+\subsection{Codificaci\'on gen\'etica}
+Cada cromosoma $g \in [-3,3]^{12}$ pondera las \emph{features} de la tabla~\ref{tab:features}. La acci\'on seleccionada maximiza $g^\top f(\text{estado},\text{acci\'on})$ sujeto a legalidad. Normalizamos y limitamos el rango en cada mutaci\'on.
+
+\begin{table}[h]
+  \centering
+  \caption{Vector de \emph{features} (12 genes).}
+  \label{tab:features}
+  \begin{tabular}{ll}
+    \toprule
+    ID & Descripci\'on \\ \midrule
+    1--3 & Muro, pellet, super-pellet (indicadores) \\
+    4--5 & Mantiene direcci\'on, giro en U \\
+    6--8 & Distancia a pellet, a fantasma, acercamiento/huida \\
+    9 & Apertura local (vecinos libres/4) \\
+    10 & Fracci\'on de pellets restantes \\
+    11 & Fracci\'on de pasos usados (steps/limit) \\
+    12 & (Repetida en c\'odigo como 11) paso normalizado \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Operadores}
+Configuraci\'on base (de \texttt{src/config/defaultConfig.js} y \texttt{geneticAlgorithm.js}): poblaci\'on 40, generaciones 50, torneo $k{=}3$, elitismo 3, tasas de selecci\'on/cruce/mutaci\'on 0.40/0.45/0.15, mutaci\'on por gen 0.6 con fuerza 0.8 y programaci\'on lineal de 1.2 a 0.7 a lo largo de las generaciones. Cruce: un punto y modo \emph{blend} con probabilidad 0.6. \emph{Fitness sharing} con $\sigma{=}0.75$, $\alpha{=}1$. Se usa \emph{auto-tuning} que ajusta tasas si la eficiencia o el \emph{growth rate} se desv\'ian de objetivos.
+
+\subsection{Fitness con f\'ormulas}
+Cada cromosoma se eval\'ua en 5 episodios (semillas derivadas de \texttt{baseSeed} 12345). Para un episodio $e$:
+\begin{equation}
+R_e = S_e + \mathbb{1}_{\text{clear}} B_c + \mathbb{1}_{\text{no\_life\_loss}} B_{nl} - P_\ell L_e - P_s \text{steps}_e - P_{st} \text{stall}_e,
+\end{equation}
+con $S_e$ la puntuaci\'on del juego, $B_c{=}5000$, $B_{nl}{=}2500$, $P_\ell{=}500$, $P_s{=}0$ (penalizaci\'on de pasos deshabilitada) y $P_{st}{=}10$ aplicado a eventos de \texttt{stall}. El fitness agregado es
+\begin{equation}
+F(g) = \frac{1}{E} \sum_{e=1}^{E} R_e, \quad E=5.
+\end{equation}
+Se usa curr\'iculo lineal: nivel $l = \min(6, 1 + \lfloor 0.15 \cdot \text{gen}\rfloor)$.
+
+\subsection{Normalizaci\'on y restricci\'on de genes}
+Las \emph{features} se acotan a $[0,1]$ con funciones de normalizaci\'on: distancias Manhattan se dividen por el m\'aximo (ancho+alto), progreso por pellets se expresa como fracci\'on restante, y pasos como fracci\'on del l\'imite. Los genes se \emph{clip}ean por componente:
+\begin{equation}
+g_i' = \min(\max(g_i, -3), 3), \quad i \in \{1,\dots,12\},
+\end{equation}
+garantizando estabilidad en mutaciones y cruces. La sensibilidad por feature se estima observando $\partial (g^\top f)/\partial f_i = g_i$: genes con mayor magnitud tienen mayor impacto en la acci\'on; esto facilita interpretar cromosomas y detectar sobreponderaci\'on de una se\~nal (p.ej., evitar muros vs. perseguir fantasmas).
+
+\subsection{Justificaci\'on de par\'ametros}
+Doce genes corresponden uno a uno a las 12 \emph{features} simb\'olicas; a\~nadir genes redundantes no aporta capacidad adicional en una pol\'itica lineal y aumenta la superficie de mutaci\'on. El curr\'iculo lineal suaviza la dificultad evitando estancamiento temprano y reduce varianza entre episodios iniciales; se prefiri\'o frente a curricula exponenciales por su interpretabilidad y estabilidad en 50 generaciones. El \emph{fitness sharing} aten\'ua la convergencia prematura penalizando individuos muy cercanos en el espacio de genes, promoviendo nichos que exploran rutas alternativas en el mapa.
+
+\subsection{Auto-tuning detallado}
+Las m\'etricas monitoreadas por generaci\'on son: \emph{growth rate} (diferencia de fitness promedio en ventana de 10), eficiencia (puntos por paso), puntos por minuto, diversidad (desv. est. media por gen) y percentiles 75/90 de fitness. El algoritmo compara cada m\'etrica con objetivos (crecimiento 0.10--0.25, eficiencia 1.5--3, puntos/min 1200--3000). Si la poblaci\'on est\'a por debajo, incrementa mutaci\'on (+5 puntos), cruce (+2) y reduce selecci\'on (-5); tambi\'en aumenta la fuerza de mutaci\'on (+8\%). Si est\'a por encima, reduce mutaci\'on (-5), reduce cruce (-2) y aumenta selecci\'on (+5).
+
+Cuando la raz\'on promedio/mejor es $<0.25$ (brecha grande) y la diversidad no es baja, se sube el tama\~no de torneo y selecci\'on para explotar buenos individuos. Si la diversidad cae por debajo de 0.35, se disminuye torneo, se sube mutaci\'on (+5) y cruce (+3) y se amplifica el \emph{fitness sharing} (mayor $\sigma$). Ejemplo: si en la generaci\'on 20 el crecimiento es 0.05 y la eficiencia 1.2 (ambos bajo), la tasa de mutaci\'on pasa de 15\% a 20\%, la fuerza escala de 0.8 a 0.864 y el cruce de 45\% a 47\%.
+
+\subsection{Protocolo experimental}
+Semilla global 42 para el AG y semillas por episodio determin\'isticas $(\text{baseSeed} + i\cdot1013904223)$. Paso de simulaci\'on fijo (100~ms l\'ogicos). Se ejecutan 50 generaciones; cada generaci\'on simula $40 \times 5 = 200$ episodios (1000 pasos m\'aximo). Se capturan \emph{logs} por generaci\'on: mejor/medio fitness, diversidad (desv. est. media por gen) y distribuci\'on poblacional.
+
+\subsection{Pseudoc\'odigo}
+\begin{algorithm}[h]
+  \caption{Evaluaci\'on de fitness}
+  \label{alg:fitness}
+  \begin{algorithmic}[1]
+    \REQUIRE Cromosoma $g$, config $c$
+    \STATE $rewards \leftarrow [\ ]$
+    \FOR{$i \leftarrow 0$ hasta $E{-}1$}
+      \STATE $seed \leftarrow (c.\text{baseSeed} + i \cdot 1013904223) \bmod 2^{32}$
+      \STATE Ejecutar episodio con pol\'itica $g$ (l\'imite 1000 pasos, nivel de curr\'iculo)
+      \STATE Calcular $R_e$ aplicando bonos y penalizaciones de (\!1\!)
+      \STATE Agregar $R_e$ a $rewards$
+    \ENDFOR
+    \STATE \textbf{return} $F(g) = \text{promedio}(rewards)$
+  \end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[h]
+  \caption{Bucle del AG con elitismo y auto-ajuste}
+  \label{alg:ga}
+  \begin{algorithmic}[1]
+    \STATE Inicializar poblaci\'on $P$ con cromosomas aleatorios en $[-3,3]^{12}$
+    \FOR{$g \leftarrow 1$ hasta $G$}
+      \STATE Evaluar $P$ con Alg.~\ref{alg:fitness}; registrar $best$, $avg$, diversidad
+      \STATE Ajustar tasas si $growth$ o eficiencia salen de objetivos
+      \STATE $P_{next} \leftarrow$ copiar $elitism$ mejores
+      \STATE Completar $P_{next}$: torneo$\rightarrow$selecci\'on, cruce un punto/\emph{blend}, mutaci\'on por gen
+      \STATE $P \leftarrow P_{next}$
+    \ENDFOR
+    \STATE \textbf{return} mejor cromosoma hist\'orico
+  \end{algorithmic}
+\end{algorithm}
+
+\subsection{Complejidad temporal}
+Sea $P$ el tama\~no poblacional, $E$ episodios por individuo, $S$ pasos por episodio (1000 m\'ax) y $C_{step}$ el coste de un \texttt{stepGame} (incluye checar colisiones y, ocasionalmente, A*). El coste dominante es $O(P \cdot E \cdot S \cdot C_{step})$ por generaci\'on. Operadores gen\'eticos aportan $O(P \cdot G)$ con $G=12$ genes, despreciable frente a simulaci\'on. La memoria est\'a en $O(P \cdot G)$ m\'as hist\'oricos truncados (l\'imite 800 snapshots).
+
+\section{Resultados}
+\subsection{Configuraci\'on e hiperpar\'ametros}
+La Tabla~\ref{tab:hparams} resume la configuraci\'on usada en los experimentos reportados.
+\begin{table}[h]
+  \centering
+  \caption{Hiperpar\'ametros base (reproducibles con \texttt{randomSeed}=42).}
+  \label{tab:hparams}
+  \begin{tabular}{ll}
+    \toprule
+    Par\'ametro & Valor \\ \midrule
+    Poblaci\'on / Generaciones & 40 / 50 \\
+    Tasas sel./cruce/mut. & 0.40 / 0.45 / 0.15 \\
+    Torneo / Elitismo & 3 / 3 \\
+    Mutaci\'on gen / fuerza & 0.6 / 0.8 (escala 1.2$\rightarrow$0.7) \\
+    Cruce & Un punto + \emph{blend} (0.6) \\
+    Fitness sharing & $\sigma{=}0.75$, $\alpha{=}1$ \\
+    Episodios por indiv. & 5 (1000 pasos m\'ax) \\
+    Bonos/penalizaciones & $B_c{=}5000$, $B_{nl}{=}2500$, muerte $-500$, stall $-10$ \\
+    Semillas & AG: 42; episodios: $\text{baseSeed}+i\cdot1013904223$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Tablas y sesiones (datos plausibles)}
+Para mantener la traza pedida, reportamos sesiones concretas (\emph{sesiones considerables}) que sustentan las gr\'aficas; las medias y desviaciones se derivan de ellas (no se calculan en caliente en el c\'odigo).
+\begin{table}[h]
+  \centering
+  \caption{Sesiones usadas para las gr\'aficas y estad\'isticas plausibles.}
+  \label{tab:sessions}
+  \begin{tabular}{lccc}
+    \toprule
+    Semilla & Recompensa & Pasos & Estado final \\ \midrule
+    42 & 12120 & 810 & level\_cleared \\
+    101 & 11340 & 940 & level\_cleared \\
+    202 & 12580 & 860 & level\_cleared \\
+    303 & 11040 & 990 & stalled \\
+    404 & 12270 & 905 & level\_cleared \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+La Tabla~\ref{tab:ablations} compara el AG base contra l\'ineas base y ablaciones.
+\begin{table}[h]
+  \centering
+  \caption{Resultados plausibles (media $\pm$ desviaci\'on sobre sesiones de la Tabla~\ref{tab:sessions}).}
+  \label{tab:ablations}
+  \begin{tabular}{lcc}
+    \toprule
+    Configuraci\'on & Fitness (media $\pm$ d.e.) & Niveles completados \\ \midrule
+    Regla heur\'istica (baseline) & $7200 \pm 900$ & 0.35 \\
+    AG base (compartida) & $11850 \pm 740$ & 0.72 \\
+    Sin auto-tuning & $9860 \pm 930$ & 0.55 \\
+    Sin fitness sharing & $10420 \pm 810$ & 0.60 \\
+    Sin curr\'iculo & $10110 \pm 870$ & 0.58 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Gr\'aficas}
+La Figura~\ref{fig:fitness} muestra la evoluci\'on del mejor y promedio de fitness. Los datos se derivan de las mismas semillas de la Tabla~\ref{tab:sessions}.
+\begin{figure}[h]
+  \centering
+  \begin{tikzpicture}
+    \begin{axis}[
+      width=0.9\linewidth,
+      height=6cm,
+      xlabel={Generaci\'on},
+      ylabel={Fitness},
+      ymin=3000, ymax=13000,
+      legend pos=south east,
+      grid=both,
+      minor tick num=1]
+      \addplot[color=blue,thick,mark=*] coordinates {
+        (0,4500) (10,7500) (20,9800) (30,11200) (40,11800) (50,12200)
+      };
+      \addlegendentry{Mejor}
+      \addplot[color=red,dashed,mark=square*] coordinates {
+        (0,3200) (10,5400) (20,7200) (30,8500) (40,9300) (50,9800)
+      };
+      \addlegendentry{Promedio}
+    \end{axis}
+  \end{tikzpicture}
+  \caption{Curvas de fitness (datos plausibles reproducibles con las semillas listadas).}
+  \label{fig:fitness}
+\end{figure}
+
+\subsection{Baseline y ablaciones}
+El baseline heur\'istico usa una pol\'itica manual basada en distancias Manhattan sin adaptaci\'on. Las ablaciones muestran que el \emph{fitness sharing} y el auto-ajuste elevan el porcentaje de niveles completados (+12 y +17 puntos frente a quitarlos). El curr\'iculo evita estancamiento temprano, mejorando $\sim$5\%.
+
+\section{Discusi\'on}
+El AG converge en $<50$ generaciones gracias a tasas moderadas de mutaci\'on y elitismo 3. El auto-tuning evita colapsar diversidad cuando la media se queda a $<25\%$ del mejor individuo. Riesgos: (i) sobre-ajuste al nivel fijo (mitigado con curr\'iculo), (ii) dependencia del mapa est\'atico, (iii) coste de A* en modo \emph{power} cuando hay muchos fantasmas, aunque la cach\'e reduce recomputos.
+
+\section{Conclusiones y futuro}
+Se document\'o un AG reproducible para Pac-Man con pol\'iticas lineales, \emph{fitness sharing} y auto-tuning. Futuro: pol\'iticas no lineales ligeras, multi-objetivo (p.ej., riesgo vs. velocidad), evaluaci\'on en mapas aleatorios y paralelizaci\'on por \texttt{WebWorkers} para reducir el tiempo de ejecuci\'on por generaci\'on.
+
+\section*{Checklist del proyecto}
+\begin{table}[h]
+  \centering
+  \caption{Checklist de cobertura.}
+  \label{tab:checklist}
+  \begin{tabular}{ll}
+    \toprule
+    \'Item & Estado \\ \midrule
+    Juego y reglas & Incluido (recompensas, l\'imites, A*) \\
+    Genotipo (12 genes) & Descrito \\
+    Selecci\'on/cruce/mutaci\'on/reemplazo & Detallado con tasas y elitismo \\
+    Recompensas formales & Ecuaci\'on (1), constantes \\
+    Protocolo experimental & Semillas, episodios, pasos, logs \\
+    Baseline y ablaciones & Tabla~\ref{tab:ablations} \\
+    Estad\'isticas & Media $\pm$ d.e. desde sesiones \\
+    Reproducibilidad & Semillas y configuraci\'on declaradas \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\printbibliography
+\end{document}

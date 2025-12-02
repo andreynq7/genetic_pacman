@@ -14,13 +14,27 @@
     'pelletsRemainingFrac',
     'stepFraction'
   ];
+
+  /** Reinicia el tracking interno del mejor fitness. */
   function init() { state.lastFitness = null; }
+
+  /**
+   * Obtiene los nombres de features que corresponden al cromosoma de pol�tica.
+   * Prefiere los definidos en `policyEncoding.FEATURE_NAMES` si existen.
+   * @returns {string[]} Lista de nombres de genes.
+   */
   function names() {
     if (window.policyEncoding && Array.isArray(window.policyEncoding.FEATURE_NAMES)) {
       return window.policyEncoding.FEATURE_NAMES;
     }
     return FEATURE_NAMES;
   }
+
+  /**
+   * Convierte un cromosoma en objeto legible llave-valor.
+   * @param {number[]} chromosome - Genes en orden fijo.
+   * @returns {Object} Mapa de feature -> peso.
+   */
   function buildPolicy(chromosome) {
     const arr = Array.isArray(chromosome) ? chromosome : [];
     const keys = names();
@@ -30,6 +44,12 @@
     for (let i = limit; i < keys.length; i += 1) { obj[keys[i]] = null; }
     return obj;
   }
+
+  /**
+   * Descarga un JSON con los datos proporcionados.
+   * @param {Object} obj - Contenido serializable.
+   * @param {string} filename - Nombre de archivo sugerido.
+   */
   function downloadJson(obj, filename) {
     const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -42,23 +62,19 @@
     a.remove();
     URL.revokeObjectURL(url);
   }
+
+  /**
+   * Actualiza el mejor fitness visto y registra un log si hay mejora.
+   * @param {{fitness:number,generation?:number,chromosome?:number[]}} best - Individuo evaluado.
+   * @param {{gaConfig?:Object,fitnessConfig?:Object}} cfgs - Configuraciones asociadas.
+   * @returns {void}
+   */
   function maybeUpdate(best, cfgs) {
     if (!best || best.fitness == null) return;
     if (state.lastFitness != null && best.fitness <= state.lastFitness) return;
     state.lastFitness = best.fitness;
-    // const payload = {
-    //   chromosome: best.chromosome,
-    //   policy: buildPolicy(best.chromosome),
-    //   metadata: {
-    //     generatedAt: new Date().toISOString(),
-    //     fitness: best.fitness,
-    //     generation: best.generation,
-    //     gaParams: cfgs && cfgs.gaConfig ? cfgs.gaConfig : null,
-    //     fitnessParams: cfgs && cfgs.fitnessConfig ? cfgs.fitnessConfig : null
-    //   }
-    // };
-    // //downloadJson(payload, 'best.json');
-    if (window.logger) window.logger.info('best_update', { fitness: best.fitness, generation: best.generation });
+    if (window.logger) window.logger.info('best_update', { fitness: best.fitness, generation: best.generation, gaConfig: cfgs?.gaConfig, fitnessConfig: cfgs?.fitnessConfig });
   }
-  window.bestStore = { init, maybeUpdate };
+
+  window.bestStore = { init, maybeUpdate, buildPolicy, downloadJson, names };
 })();

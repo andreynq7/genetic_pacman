@@ -47,6 +47,11 @@
     return audio;
   }
 
+  /**
+   * Crea instancias de Audio para todos los sonidos si todav�a no existen.
+   * Idempotente para evitar recrear nodos de audio.
+   * @returns {void}
+   */
   function ensureSoundsCreated() {
     if (Object.keys(sounds).length) return;
     Object.keys(sources).forEach((key) => {
@@ -56,6 +61,10 @@
     });
   }
 
+  /**
+   * Precarga todos los sonidos y resuelve cuando pueden reproducirse.
+   * @returns {Promise<boolean>} True si se cargaron correctamente.
+   */
   function loadAll() {
     if (preloadPromise) return preloadPromise;
     ensureSoundsCreated();
@@ -75,6 +84,10 @@
     return preloadPromise;
   }
 
+  /**
+   * Garantiza que los recursos de audio est�n precargados, registrando advertencias si fallan.
+   * @returns {Promise<void>}
+   */
   async function ensurePreloaded() {
     ensureSoundsCreated();
     try {
@@ -103,6 +116,10 @@
     }
   }
 
+  /**
+   * Precalienta el buffer de la m�sica inicial para evitar delays en la primera reproducci�n.
+   * @returns {Promise<void>}
+   */
   function primeForInstantStart() {
     return warmStartBuffer();
   }
@@ -174,11 +191,19 @@
     audio.muted = muted;
   }
 
+  /**
+   * Activa o desactiva silencio global para todos los clips.
+   * @param {boolean} flag - True para mutear.
+   */
   function setMuted(flag) {
     muted = !!flag;
     Object.values(sounds).forEach(applyMutedFlag);
   }
 
+  /**
+   * Cambia el loop de movimiento de fantasmas (normal vs power) y lo reproduce.
+   * @param {'ghostNormal'|'ghostBlue'} to - Loop deseado.
+   */
   function setGhostLoop(to) {
     // Siempre intenta arrancar el loop solicitado; si cambia, detiene el previo.
     if (ghostLoop !== to) {
@@ -188,6 +213,10 @@
     startLoop(ghostLoop);
   }
 
+  /**
+   * Reproduce la secuencia inicial y resuelve una vez que termina.
+   * @returns {Promise<void>}
+   */
   function playStartSequence() {
     return warmStartBuffer().then(() => {
       stopAllLoops();
@@ -209,6 +238,10 @@
     });
   }
 
+  /**
+   * Inicia la m�sica de apertura asegurando que el buffer est� listo.
+   * @returns {Promise<void>}
+   */
   function playStartMusic() {
     return warmStartBuffer().then(() => {
       stopStartMusic();
@@ -223,6 +256,11 @@
     });
   }
 
+  /**
+   * Variante protegida para iniciar la m�sica evitando condiciones de carrera.
+   * @param {number} [timeoutMs=500] - Tiempo m�ximo para esperar play().
+   * @returns {Promise<void>}
+   */
   function playStartMusicSafe(timeoutMs = 500) {
     return warmStartBuffer().then(async () => {
       const a = sounds.start;
@@ -259,6 +297,10 @@
     });
   }
 
+  /**
+   * Inicia los loops de fondo apropiados seg�n el estado de juego (power vs normal).
+   * @param {Object} state - Estado actual con indicador de powerTimer.
+   */
   function startGameplayLoops(state) {
     ensurePreloaded();
     stopAllLoops();
@@ -268,6 +310,11 @@
     setGhostLoop(power ? 'ghostBlue' : 'ghostNormal');
   }
 
+  /**
+   * Responde a eventos de un paso de simulaci�n para disparar sonidos contextuales.
+   * @param {Object} state - Estado de juego tras el paso.
+   * @param {Object} [info={}] - Informaci�n de evento devuelta por gameLogic.
+   */
   function handleStep(state, info = {}) {
     if (info.lifeLost && !lifeSeqRunning) {
       stopStartMusic();
@@ -296,6 +343,11 @@
     }
   }
 
+  /**
+   * Reproduce la secuencia de audio asociada a perder una vida y reanuda el loop de juego.
+   * @param {Object} state - Estado actual para sincronizar loops.
+   * @returns {Promise<void>}
+   */
   async function handleLifeLostSequence(state) {
     if (lifeSeqRunning) return;
     lifeSeqRunning = true;
@@ -307,6 +359,10 @@
     lifeSeqRunning = false;
   }
 
+  /**
+   * Detiene todos los sonidos y reinicia banderas internas.
+   * @returns {void}
+   */
   function resetAll() {
     stopAllSounds();
     lifeSeqRunning = false;

@@ -2,6 +2,11 @@
 (function() {
   const refs = {};
 
+  /**
+   * Busca y guarda referencias a los nodos de la UI que se reutilizan en otros m�dulos.
+   * Se ejecuta una vez y reutiliza el mismo objeto `refs` para evitar queries repetitivas.
+   * @returns {void}
+   */
   function cacheDom() {
     refs.form = domHelpers.getById('ga-params-form');
     refs.inputs = {
@@ -72,6 +77,10 @@
     refs.workers = null;
   }
 
+  /**
+   * Devuelve las referencias cacheadas, inicializ�ndolas la primera vez que se llama.
+   * @returns {Object} Colecci�n de nodos y secciones de UI.
+   */
   function getRefs() {
     if (!Object.keys(refs).length) {
       cacheDom();
